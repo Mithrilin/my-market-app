@@ -36,4 +36,16 @@ public class ItemController {
         return "item";
     }
 
+    @GetMapping({"/", "/items"})
+    public String getItemList(@Valid @ModelAttribute ItemListSearchRequest itemListSearchRequest,
+                              Model model) {
+        log.info("Getting the list of items.");
+        ItemListResponse itemListResponse = itemService.getItemList(itemListSearchRequest);
+        model.addAttribute("items", itemListResponse.splittedItemDtoList());
+        model.addAttribute("search", itemListSearchRequest.search());
+        model.addAttribute("sort", itemListSearchRequest.sort());
+        model.addAttribute("paging", itemListResponse.paging());
+        return "items";
+    }
+
 }

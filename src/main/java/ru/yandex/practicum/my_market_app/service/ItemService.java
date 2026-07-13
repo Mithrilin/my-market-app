@@ -9,4 +9,5 @@ public interface ItemService {
 
     ItemDto getItemById(Long id);
 
+    ItemListResponse getItemList(ItemListSearchRequest itemListSearchRequest);
 }
