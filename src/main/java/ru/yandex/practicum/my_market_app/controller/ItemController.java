@@ -48,4 +48,31 @@ public class ItemController {
         return "items";
     }
 
+    @PostMapping("/items/{id}")
+    public String changeItemCount(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
+                                  @RequestParam Action action,
+                                  Model model) {
+        log.info("Changing count of item with ID {}.", id);
+        ItemDto itemDto = itemService.changeItemCount(id, action);
+        model.addAttribute("item", itemDto);
+        return "item";
+    }
+
+    @PostMapping("/items")
+    public String changeItemCountInCart(@Valid @ModelAttribute ItemChangeCountRequest itemChangeCountRequest) {
+        log.info("Changing count of item in the cart.");
+        itemService.changeItemCount(itemChangeCountRequest.id(), itemChangeCountRequest.action());
+
+        //ToDo нужен ли рефакторинг?
+        StringBuilder builder = new StringBuilder("redirect:/items?");
+        if (itemChangeCountRequest.search() != null) {
+            builder.append("search=").append(itemChangeCountRequest.search()).append("&");
+        }
+        if (itemChangeCountRequest.sort() != null) {
+            builder.append("sort=").append(itemChangeCountRequest.sort()).append("&");
+        }
+        builder.append("pageNumber=").append(itemChangeCountRequest.pageNumber())
+                .append("&pageSize=").append(itemChangeCountRequest.pageSize());
+        return builder.toString();
+    }
 }

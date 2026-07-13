@@ -10,4 +10,6 @@ public interface ItemService {
     ItemDto getItemById(Long id);
 
     ItemListResponse getItemList(ItemListSearchRequest itemListSearchRequest);
+
+    ItemDto changeItemCount(Long id, Action action);
 }

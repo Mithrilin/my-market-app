@@ -50,6 +50,24 @@ public class ItemServiceImpl implements ItemService {
                 itemListSearchRequest.pageSize());
         return itemListResponse;
     }
+
+    @Override
+    @Transactional
+    public ItemDto changeItemCount(Long itemId, Action action) {
+        Item item = findItemById(itemId);
+        Integer count = item.getCount();
+        if (action.equals(Action.MINUS)) {
+            --count;
+        } else {
+            ++count;
+        }
+        item.setCount(count);
+        Item returnedItem = itemRepository.save(item);
+        ItemDto itemDto = itemMapper.toItemDto(returnedItem);
+        log.info("Count of Item with ID {} has been changed. New count = {}.", itemId, count);
+        return itemDto;
+    }
+
     private Page<Item> getItemPage(ItemListSearchRequest itemListSearchRequest) {
         Sort sort = switch (itemListSearchRequest.sort()) {
             case ALPHA -> Sort.by(Sort.Direction.ASC, "title");
