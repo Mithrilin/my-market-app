@@ -7,11 +7,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.yandex.practicum.my_market_app.dto.ItemCartListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
 import ru.yandex.practicum.my_market_app.dto.Paging;
 import ru.yandex.practicum.my_market_app.enums.Action;
+import ru.yandex.practicum.my_market_app.exception.BadRequestException;
 import ru.yandex.practicum.my_market_app.exception.NotFoundException;
 import ru.yandex.practicum.my_market_app.mapper.ItemMapper;
 import ru.yandex.practicum.my_market_app.model.Item;
@@ -24,6 +26,8 @@ import java.util.List;
 @Service
 @AllArgsConstructor
 public class ItemServiceImpl implements ItemService {
+
+    private static final Integer MIN_COUNT_ITEMS_IN_CART = 1;
 
     private final ItemRepository itemRepository;
 
@@ -53,19 +57,42 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     @Transactional
-    public ItemDto changeItemCount(Long itemId, Action action) {
-        Item item = findItemById(itemId);
-        Integer count = item.getCount();
-        if (action.equals(Action.MINUS)) {
-            --count;
-        } else {
-            ++count;
+    public ItemDto changeItemCountFromItemPage(Long itemId, Action action) {
+        if (action.equals(Action.DELETE)) {
+            throw new BadRequestException("Action cannot be equal DELETE.");
         }
-        item.setCount(count);
-        Item returnedItem = itemRepository.save(item);
+        Item returnedItem = changeItemCount(itemId, action);
         ItemDto itemDto = itemMapper.toItemDto(returnedItem);
-        log.info("Count of Item with ID {} has been changed. New count = {}.", itemId, count);
+        log.info("Count of Item with ID {} has been changed from item page. New count = {}.", itemId, itemDto.count());
         return itemDto;
+    }
+
+    @Override
+    public ItemCartListResponse getItemCartList() {
+        ItemCartListResponse itemCartListResponse = getItemCartListResponse();
+        log.info("ItemCartList with size = {} and total price {} has been returned",
+                itemCartListResponse.itemDtoList().size(), itemCartListResponse.total());
+        return itemCartListResponse;
+    }
+
+    @Override
+    @Transactional
+    public ItemCartListResponse changeItemCountFromCartPage(Long itemId, Action action) {
+        Item returnedItem = changeItemCount(itemId, action);
+        ItemCartListResponse itemCartListResponse = getItemCartListResponse();
+        log.info("Count of Item with ID {} has been changed from cart page. New count = {}.",
+                itemId, returnedItem.getCount());
+        return itemCartListResponse;
+    }
+
+    private ItemCartListResponse getItemCartListResponse() {
+        List<Item> itemList = itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART);
+        long total = 0L;
+        for (Item item : itemList) {
+            total = total + item.getPrice();
+        }
+        List<ItemDto> itemDtoList = itemMapper.toItemDtoList(itemList);
+        return new ItemCartListResponse(itemDtoList, total);
     }
 
     private Page<Item> getItemPage(ItemListSearchRequest itemListSearchRequest) {
@@ -104,6 +131,23 @@ public class ItemServiceImpl implements ItemService {
             chunkList.add(chunk);
         }
         return chunkList;
+    }
+
+    private Item changeItemCount(Long itemId, Action action) {
+        Item item = findItemById(itemId);
+        Integer count = item.getCount();
+        if (action.equals(Action.MINUS)) {
+            if (count == 0) {
+                throw new BadRequestException("Count cannot be less than 0");
+            }
+            --count;
+        } else if (action.equals(Action.PLUS)){
+            ++count;
+        } else {
+            count = 0;
+        }
+        item.setCount(count);
+        return itemRepository.save(item);
     }
 
     private Item findItemById(Long itemId) {

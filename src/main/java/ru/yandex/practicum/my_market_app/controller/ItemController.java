@@ -49,21 +49,20 @@ public class ItemController {
     }
 
     @PostMapping("/items/{id}")
-    public String changeItemCount(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
-                                  @RequestParam Action action,
-                                  Model model) {
+    public String changeItemCountFromItemPage(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
+                                              @RequestParam Action action,
+                                              Model model) {
         log.info("Changing count of item with ID {}.", id);
-        ItemDto itemDto = itemService.changeItemCount(id, action);
+        ItemDto itemDto = itemService.changeItemCountFromItemPage(id, action);
         model.addAttribute("item", itemDto);
         return "item";
     }
 
     @PostMapping("/items")
-    public String changeItemCountInCart(@Valid @ModelAttribute ItemChangeCountRequest itemChangeCountRequest) {
-        log.info("Changing count of item in the cart.");
-        itemService.changeItemCount(itemChangeCountRequest.id(), itemChangeCountRequest.action());
-
-        //ToDo нужен ли рефакторинг?
+    public String changeItemCountFromItemListPage(@Valid @ModelAttribute
+                                                  ItemChangeCountRequest itemChangeCountRequest) {
+        log.info("Changing count of item from item list page.");
+        itemService.changeItemCountFromItemPage(itemChangeCountRequest.id(), itemChangeCountRequest.action());
         StringBuilder builder = new StringBuilder("redirect:/items?");
         if (itemChangeCountRequest.search() != null) {
             builder.append("search=").append(itemChangeCountRequest.search()).append("&");

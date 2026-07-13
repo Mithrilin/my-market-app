@@ -32,6 +32,17 @@ public class ErrorHandler {
 
     @ExceptionHandler
     @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleBadRequestException(BadRequestException e) {
+        Map<String, String> error = new HashMap<>();
+        error.put("errorMessage", e.getLocalizedMessage());
+        error.put("stackTrace", getStackTraceAsString(e));
+        ErrorResponse errorResponse = new ErrorResponse(error, HttpStatus.BAD_REQUEST.value(), LocalDateTime.now());
+        log.error(e.getLocalizedMessage());
+        return errorResponse;
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleMethodArgumentNotValid(MethodArgumentNotValidException e) {
         Map<String, String> errors = new HashMap<>();
         for (ObjectError oe : e.getBindingResult().getAllErrors()) {
