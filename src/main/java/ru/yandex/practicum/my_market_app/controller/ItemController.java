@@ -27,5 +27,13 @@ public class ItemController {
 
     private final ItemService itemService;
 
+    @GetMapping("/items/{id}")
+    public String getItemById(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
+                              Model model) {
+        log.debug("Getting item by ID {}.", id);
+        ItemDto itemDto = itemService.getItemById(id);
+        model.addAttribute("item", itemDto);
+        return "item";
+    }
 
 }

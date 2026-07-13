@@ -7,5 +7,6 @@ import ru.yandex.practicum.my_market_app.enums.Action;
 
 public interface ItemService {
 
+    ItemDto getItemById(Long id);
 
 }
