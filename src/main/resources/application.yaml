@@ -1,3 +1,37 @@
+logging:
+  level:
+    org.springframework.mail: TRACE
+    org:
+      springframework:
+        transaction: INFO
+        transaction.interceptor: TRACE
+      orm:
+        jpa: INFO
+        jpa.JpaTransactionManager: DEBUG
+      hibernate:
+        SQL: DEBUG
+        type:
+          descriptor:
+            sql:
+              BasicBinder: TRACE
+
 spring:
-  application:
-    name: my-market-app
+  datasource:
+    driver-class-name: org.postgresql.Driver
+#    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/insider-bd}
+#    username: ${SPRING_DATASOURCE_USERNAME:insider}
+#    password: ${SPRING_DATASOURCE_PASSWORD:insider}
+    url: jdbc:postgresql://localhost:5432/market-bd
+    username: postgres
+    password: postgres
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  sql:
+    init:
+      mode: always
