@@ -27,7 +27,7 @@ import java.util.List;
 @AllArgsConstructor
 public class ItemServiceImpl implements ItemService {
 
-    private static final Integer MIN_COUNT_ITEMS_IN_CART = 1;
+    public static final Integer MIN_COUNT_ITEMS_IN_CART = 1;
 
     private final ItemRepository itemRepository;
 
