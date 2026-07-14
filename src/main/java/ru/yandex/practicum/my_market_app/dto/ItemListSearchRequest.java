@@ -2,8 +2,10 @@ package ru.yandex.practicum.my_market_app.dto;
 
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import lombok.Builder;
 import ru.yandex.practicum.my_market_app.enums.Sort;
 
+@Builder
 public record ItemListSearchRequest(
 
         @Size(max = 100, message = "Search query cannot exceed 100 characters")
