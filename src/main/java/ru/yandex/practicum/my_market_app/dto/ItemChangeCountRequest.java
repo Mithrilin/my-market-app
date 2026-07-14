@@ -3,9 +3,11 @@ package ru.yandex.practicum.my_market_app.dto;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import lombok.Builder;
 import ru.yandex.practicum.my_market_app.enums.Action;
 import ru.yandex.practicum.my_market_app.enums.Sort;
 
+@Builder
 public record ItemChangeCountRequest(
 
         @NotNull(message = "Id cannot be null.")
