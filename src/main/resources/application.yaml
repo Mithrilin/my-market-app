@@ -18,12 +18,9 @@ logging:
 spring:
   datasource:
     driver-class-name: org.postgresql.Driver
-#    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/insider-bd}
-#    username: ${SPRING_DATASOURCE_USERNAME:insider}
-#    password: ${SPRING_DATASOURCE_PASSWORD:insider}
-    url: jdbc:postgresql://localhost:5432/market-bd
-    username: postgres
-    password: postgres
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/market-bd}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
   jpa:
     show-sql: true
     hibernate:
