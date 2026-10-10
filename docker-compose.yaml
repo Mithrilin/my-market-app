@@ -1,0 +1,23 @@
+services:
+  insider-service:
+    build: .
+    image: my-market-app-image
+    container_name: my-market-app-container
+    ports:
+      - "8080:8080"
+    depends_on:
+      - market-bd
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://market-bd:5432/market-bd
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+
+  market-bd:
+    image: postgres:18-alpine
+    container_name: market-bd-container
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=market-bd
