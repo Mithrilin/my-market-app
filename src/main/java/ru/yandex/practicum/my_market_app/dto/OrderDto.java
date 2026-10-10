@@ -9,7 +9,7 @@ public record OrderDto(
 
         Long id,
 
-        List<ItemShortDto> items,
+        List<OrderItemDto> items,
 
         Long totalSum
 ) {

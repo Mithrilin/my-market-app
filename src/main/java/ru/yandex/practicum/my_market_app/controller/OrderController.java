@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import ru.yandex.practicum.my_market_app.dto.OrderDto;
 import ru.yandex.practicum.my_market_app.service.OrderService;
 
@@ -43,9 +44,10 @@ public class OrderController {
     }
 
     @PostMapping("/buy")
-    public String createOrder() {
+    public String createOrder(RedirectAttributes redirectAttributes) {
         log.info("Creating a new Order");
         OrderDto orderDto = orderService.createOrder();
-        return "redirect:/orders/" + orderDto.id() + "?newOrder=true";
+        redirectAttributes.addAttribute("newOrder", "true");
+        return "redirect:/orders/" + orderDto.id();
     }
 }

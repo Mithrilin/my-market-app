@@ -16,10 +16,9 @@ import ru.yandex.practicum.my_market_app.model.Order;
 import ru.yandex.practicum.my_market_app.repository.ItemRepository;
 import ru.yandex.practicum.my_market_app.repository.OrderRepository;
 
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,15 +51,9 @@ class OrderServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        List<Item> testItems = TestDataFactory.createTestItemList(3);
-        Map<Item, Integer> itemsWithCount = new HashMap<>();
-        for (Item item : testItems) {
-            itemsWithCount.put(item, item.getCount());
-        }
-
         testOrder = Order.builder()
                 .id(1L)
-                .itemsWithCount(itemsWithCount)
+                .orderItemList(Collections.emptyList())
                 .totalSum(600L)
                 .build();
 
@@ -116,7 +109,7 @@ class OrderServiceImplTest {
         List<Item> itemsInCart = TestDataFactory.createTestItemList(2);
         Order newOrder = Order.builder()
                 .id(2L)
-                .itemsWithCount(new HashMap<>())
+                .orderItemList(new ArrayList<>())
                 .totalSum(300L)
                 .build();
         OrderDto newOrderDto = OrderDto.builder()

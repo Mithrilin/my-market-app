@@ -207,7 +207,7 @@ class ItemServiceImplTest {
 
         assertThat(response).isNotNull();
         assertThat(response.itemDtoList()).hasSize(2);
-        assertThat(response.total()).isEqualTo(300L);
+        assertThat(response.total()).isEqualTo(800L);
         verify(itemRepository).findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART);
     }
 

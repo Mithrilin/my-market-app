@@ -3,9 +3,11 @@ package ru.yandex.practicum.my_market_app.dto;
 import lombok.Builder;
 
 @Builder
-public record ItemShortDto(
+public record OrderItemDto(
 
         Long id,
+
+        Long orderId,
 
         String title,
 

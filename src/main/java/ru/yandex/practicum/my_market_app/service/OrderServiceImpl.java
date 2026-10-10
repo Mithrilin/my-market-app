@@ -9,6 +9,7 @@ import ru.yandex.practicum.my_market_app.exception.NotFoundException;
 import ru.yandex.practicum.my_market_app.mapper.OrderMapper;
 import ru.yandex.practicum.my_market_app.model.Item;
 import ru.yandex.practicum.my_market_app.model.Order;
+import ru.yandex.practicum.my_market_app.model.OrderItem;
 import ru.yandex.practicum.my_market_app.repository.ItemRepository;
 import ru.yandex.practicum.my_market_app.repository.OrderRepository;
 
@@ -51,6 +52,9 @@ public class OrderServiceImpl implements OrderService {
             totalSum = totalSum + item.getPrice() * item.getCount();
         }
         Order order = orderMapper.toOrder(itemList, totalSum);
+        for (OrderItem orderItem : order.getOrderItemList()) {
+            orderItem.setOrder(order);
+        }
         Order returnedOrder = orderRepository.save(order);
         OrderDto orderDto = orderMapper.toOrderDto(returnedOrder);
         for (Item item : itemList) {

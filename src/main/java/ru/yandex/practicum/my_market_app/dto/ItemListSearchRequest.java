@@ -22,14 +22,8 @@ public record ItemListSearchRequest(
 
     public ItemListSearchRequest {
 
-        if (sort == null) {
-            sort = Sort.NO;
-        }
-        if (pageNumber == null) {
-            pageNumber = 1;
-        }
-        if (pageSize == null) {
-            pageSize = 5;
-        }
+        sort = RequestDefaults.getSortOrDefault(sort);
+        pageNumber = RequestDefaults.getPageNumberOrDefault(pageNumber);
+        pageSize = RequestDefaults.getPageSizeOrDefault(pageSize);
     }
 }

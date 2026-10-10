@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import ru.yandex.practicum.my_market_app.dto.ItemChangeCountRequest;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
@@ -60,18 +61,20 @@ public class ItemController {
 
     @PostMapping("/items")
     public String changeItemCountFromItemListPage(@Valid @ModelAttribute
-                                                  ItemChangeCountRequest itemChangeCountRequest) {
+                                                  ItemChangeCountRequest itemChangeCountRequest,
+                                                  RedirectAttributes redirectAttributes) {
         log.info("Changing count of item from item list page.");
         itemService.changeItemCountFromItemPage(itemChangeCountRequest.id(), itemChangeCountRequest.action());
-        StringBuilder builder = new StringBuilder("redirect:/items?");
+
         if (itemChangeCountRequest.search() != null) {
-            builder.append("search=").append(itemChangeCountRequest.search()).append("&");
+            redirectAttributes.addAttribute("search", itemChangeCountRequest.search());
         }
         if (itemChangeCountRequest.sort() != null) {
-            builder.append("sort=").append(itemChangeCountRequest.sort()).append("&");
+            redirectAttributes.addAttribute("sort", itemChangeCountRequest.sort());
         }
-        builder.append("pageNumber=").append(itemChangeCountRequest.pageNumber())
-                .append("&pageSize=").append(itemChangeCountRequest.pageSize());
-        return builder.toString();
+
+        redirectAttributes.addAttribute("pageNumber", itemChangeCountRequest.pageNumber());
+        redirectAttributes.addAttribute("pageSize", itemChangeCountRequest.pageSize());
+        return "redirect:/items";
     }
 }

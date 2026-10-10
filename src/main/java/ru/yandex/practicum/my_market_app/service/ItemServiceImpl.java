@@ -28,6 +28,11 @@ import java.util.List;
 public class ItemServiceImpl implements ItemService {
 
     public static final Integer MIN_COUNT_ITEMS_IN_CART = 1;
+    private static final long PLUG_ID = -1L;
+    private static final ItemDto PLUG = ItemDto.builder()
+            .id(PLUG_ID)
+            .title("plug")
+            .build();
 
     private final ItemRepository itemRepository;
 
@@ -89,7 +94,7 @@ public class ItemServiceImpl implements ItemService {
         List<Item> itemList = itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART);
         long total = 0L;
         for (Item item : itemList) {
-            total = total + item.getPrice();
+            total = total + item.getPrice() * item.getCount();
         }
         List<ItemDto> itemDtoList = itemMapper.toItemDtoList(itemList);
         return new ItemCartListResponse(itemDtoList, total);
@@ -115,18 +120,14 @@ public class ItemServiceImpl implements ItemService {
     }
 
     private List<List<ItemDto>> splitIntoChunksOfThree(List<ItemDto> itemDtoList) {
+        int rowSize = 3;
         List<List<ItemDto>> chunkList = new ArrayList<>();
-        for (int i = 0; i < itemDtoList.size(); i += 3) {
-            List<ItemDto> chunk = new ArrayList<>();
-            int end = Math.min(i + 3, itemDtoList.size());
-            for (int j = i; j < end; j++) {
-                chunk.add(itemDtoList.get(j));
-            }
-            for (int j = chunk.size(); j < 3; j++) {
-                chunk.add(ItemDto.builder()
-                        .id(-1L)
-                        .title("plug")
-                        .build());
+        for (int i = 0; i < itemDtoList.size(); i += rowSize) {
+            List<ItemDto> chunk = new ArrayList<>(
+                    itemDtoList.subList(i, Math.min(i + rowSize, itemDtoList.size()))
+            );
+            while (chunk.size() < rowSize) {
+                chunk.add(PLUG);
             }
             chunkList.add(chunk);
         }
