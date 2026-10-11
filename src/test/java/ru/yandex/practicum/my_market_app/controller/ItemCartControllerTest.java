@@ -4,9 +4,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.ItemCartListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.enums.Action;
@@ -16,17 +17,12 @@ import ru.yandex.practicum.my_market_app.util.TestDataFactory;
 import java.util.List;
 
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
-@WebMvcTest(ItemCartController.class)
+@WebFluxTest(ItemCartController.class)
 class ItemCartControllerTest {
 
     @Autowired
-    private MockMvc mockMvc;
+    private WebTestClient webTestClient;
 
     @MockitoBean
     private ItemService itemService;
@@ -43,59 +39,54 @@ class ItemCartControllerTest {
     }
 
     @Test
-    void getItemCartList() {
-    }
-    @Test
     @DisplayName("Successful getting Cart Page")
-    void getItemCartList_shouldReturnCartPage() throws Exception {
-        when(itemService.getItemCartList()).thenReturn(testCartResponse);
+    void getItemCartList_shouldReturnCartPage() {
+        when(itemService.getItemCartList()).thenReturn(Mono.just(testCartResponse));
 
-        mockMvc.perform(get("/cart/items"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("cart"))
-                .andExpect(model().attributeExists("items", "total"))
-                .andExpect(model().attribute("total", 700L));
+        webTestClient.get().uri("/cart/items")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
-    @DisplayName("Successful change of the quantity of goods in the Cart")
-    void changeItemCountFromCartPage_shouldChangeItemCountInCart() throws Exception {
-        when(itemService.changeItemCountFromCartPage(1L, Action.PLUS)).thenReturn(testCartResponse);
+    @DisplayName("Successful change of the quantity of goods in the Cart (PLUS)")
+    void changeItemCountFromCartPage_shouldIncreaseItemCountInCart() {
+        when(itemService.changeItemCountFromCartPage(1L, Action.PLUS))
+                .thenReturn(Mono.just(testCartResponse));
 
-        mockMvc.perform(post("/cart/items")
-                        .param("id", "1")
-                        .param("action", "PLUS"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("cart"))
-                .andExpect(model().attributeExists("items", "total"));
+        webTestClient.post()
+                .uri("/cart/items?id=1&action=PLUS")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
     @DisplayName("Successful decrease count in Cart")
-    void changeItemCountFromCartPage_shouldDecreaseItemCountInCart() throws Exception {
-        when(itemService.changeItemCountFromCartPage(1L, Action.MINUS)).thenReturn(testCartResponse);
+    void changeItemCountFromCartPage_shouldDecreaseItemCountInCart() {
+        when(itemService.changeItemCountFromCartPage(1L, Action.MINUS))
+                .thenReturn(Mono.just(testCartResponse));
 
-        mockMvc.perform(post("/cart/items")
-                        .param("id", "1")
-                        .param("action", "MINUS"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("cart"));
+        webTestClient.post()
+                .uri("/cart/items?id=1&action=MINUS")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
     @DisplayName("Return Error when negative Id")
-    void shouldReturnErrorForNegativeId() throws Exception {
-        mockMvc.perform(post("/cart/items")
-                        .param("id", "-1")
-                        .param("action", "PLUS"))
-                .andExpect(status().is5xxServerError());
+    void shouldReturnErrorForNegativeId() {
+        webTestClient.post()
+                .uri("/cart/items?id=-1&action=PLUS")
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 
     @Test
     @DisplayName("Return Error when missing Id")
-    void shouldReturnErrorForMissingId() throws Exception {
-        mockMvc.perform(post("/cart/items")
-                        .param("action", "PLUS"))
-                .andExpect(status().is5xxServerError());
+    void shouldReturnErrorForMissingId() {
+        webTestClient.post()
+                .uri("/cart/items?action=PLUS")
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 }

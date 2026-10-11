@@ -12,9 +12,9 @@ import java.util.List;
 public interface OrderItemMapper {
 
     @Mapping(target = "id", ignore = true)
+    @Mapping(target = "orderId", ignore = true)
     OrderItem toOrderItem(Item item);
 
-    @Mapping(target = "orderId", source = "order.id")
     OrderItemDto toOrderItemDto(OrderItem orderItem);
 
     List<OrderItem> toOrderItemList(List<Item> itemList);

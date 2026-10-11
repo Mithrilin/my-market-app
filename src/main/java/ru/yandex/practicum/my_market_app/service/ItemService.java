@@ -1,5 +1,6 @@
 package ru.yandex.practicum.my_market_app.service;
 
+import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.ItemCartListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
@@ -8,13 +9,13 @@ import ru.yandex.practicum.my_market_app.enums.Action;
 
 public interface ItemService {
 
-    ItemDto getItemById(Long itemId);
+    Mono<ItemDto> getItemById(Long itemId);
 
-    ItemListResponse getItemList(ItemListSearchRequest itemListSearchRequest);
+    Mono<ItemListResponse> getItemList(ItemListSearchRequest request);
 
-    ItemDto changeItemCountFromItemPage(Long itemId, Action action);
+    Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action);
 
-    ItemCartListResponse getItemCartList();
+    Mono<ItemCartListResponse> getItemCartList();
 
-    ItemCartListResponse changeItemCountFromCartPage(Long itemId, Action action);
+    Mono<ItemCartListResponse> changeItemCountFromCartPage(Long itemId, Action action);
 }
