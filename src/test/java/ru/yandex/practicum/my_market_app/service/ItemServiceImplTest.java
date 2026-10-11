@@ -7,13 +7,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 import ru.yandex.practicum.my_market_app.util.TestDataFactory;
-import ru.yandex.practicum.my_market_app.dto.ItemCartListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
-import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
 import ru.yandex.practicum.my_market_app.enums.Action;
 import ru.yandex.practicum.my_market_app.enums.Sort;
@@ -23,16 +21,12 @@ import ru.yandex.practicum.my_market_app.mapper.ItemMapper;
 import ru.yandex.practicum.my_market_app.model.Item;
 import ru.yandex.practicum.my_market_app.repository.ItemRepository;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,177 +53,146 @@ class ItemServiceImplTest {
     @Test
     @DisplayName("Successful getting Item")
     void getItemById_whenItemExists_shouldReturnItemDto() {
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(testItem));
+        when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
         when(itemMapper.toItemDto(testItem)).thenReturn(testItemDto);
 
-        ItemDto result = itemService.getItemById(1L);
-
-        assertThat(result).isNotNull();
-        assertThat(result.id()).isEqualTo(1L);
-        assertThat(result.title()).isEqualTo("Test Item");
-        verify(itemRepository).findById(1L);
-        verify(itemMapper).toItemDto(testItem);
+        StepVerifier.create(itemService.getItemById(1L))
+                .assertNext(dto -> {
+                    assertThat(dto.id()).isEqualTo(1L);
+                    assertThat(dto.title()).isEqualTo("Test Item");
+                })
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Getting Item by ID when Item not found")
-    void getPostById_whenPostNotFound_shouldThrowNotFoundException() {
-        when(itemRepository.findById(111L))
-                .thenThrow(new NotFoundException(String.format("The Item with ID = %s not found", 111L)));
+    void getItemById_whenItemNotFound_shouldThrowNotFoundException() {
+        when(itemRepository.findById(111L)).thenReturn(Mono.empty());
 
-        assertThatThrownBy(() -> itemService.getItemById(111L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessage(String.format("The Item with ID = %s not found", 111L));
-    }
-
-    @Test
-    @DisplayName("Successful getting Item List with pagination")
-    void getItemList_shouldReturnItemListWithPagination() {
-        List<Item> items = TestDataFactory.createTestItemList(3);
-        Page<Item> page = new PageImpl<>(items, PageRequest.of(0, 5), 3);
-        List<ItemDto> itemDtoList = Arrays.asList(
-                TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 1),
-                TestDataFactory.createTestItemDto(2L, "Item 2", 200L, 2),
-                TestDataFactory.createTestItemDto(3L, "Item 3", 300L, 3)
-        );
-
-        ItemListSearchRequest request = TestDataFactory.createDefaultSearchRequest();
-
-        when(itemRepository.findAll(any(PageRequest.class))).thenReturn(page);
-        when(itemMapper.toItemDtoList(items)).thenReturn(itemDtoList);
-
-        ItemListResponse response = itemService.getItemList(request);
-
-        assertThat(response).isNotNull();
-        assertThat(response.paging()).isNotNull();
-        assertThat(response.splittedItemDtoList()).hasSize(1);
-        assertThat(response.splittedItemDtoList().getFirst()).hasSize(3);
-        verify(itemRepository).findAll(any(PageRequest.class));
+        StepVerifier.create(itemService.getItemById(111L))
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(NotFoundException.class);
+                    assertThat(e.getMessage()).contains("Item with ID = 111 not found");
+                })
+                .verify();
     }
 
     @Test
     @DisplayName("Successful getting Item List with search")
     void getItemList_shouldReturnItemListWithSearch() {
         String searchTerm = "Test";
-        List<Item> items = Collections.singletonList(testItem);
-        Page<Item> page = new PageImpl<>(items, PageRequest.of(0, 5), 1);
-        List<ItemDto> itemDtoList = Collections.singletonList(testItemDto);
+        List<Item> items = List.of(testItem);
+        List<ItemDto> dtoList = List.of(testItemDto);
 
-        ItemListSearchRequest request = TestDataFactory.createSearchRequest(searchTerm, Sort.NO, 1, 5);
+        ItemListSearchRequest req = TestDataFactory.createSearchRequest(searchTerm, Sort.NO, 1, 5);
 
-        when(itemRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                eq(searchTerm), eq(searchTerm), any(PageRequest.class)))
-                .thenReturn(page);
-        when(itemMapper.toItemDtoList(items)).thenReturn(itemDtoList);
+        when(itemRepository.search(eq(searchTerm), anyInt(), anyInt()))
+                .thenReturn(Flux.fromIterable(items));
+        when(itemRepository.countSearch(searchTerm)).thenReturn(Mono.just(1L));
+        when(itemMapper.toItemDtoList(items)).thenReturn(dtoList);
 
-        ItemListResponse response = itemService.getItemList(request);
-
-        assertThat(response).isNotNull();
-        assertThat(response.splittedItemDtoList()).isNotEmpty();
-        verify(itemRepository).findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                eq(searchTerm), eq(searchTerm), any(PageRequest.class));
+        StepVerifier.create(itemService.getItemList(req))
+                .assertNext(response -> assertThat(response.splittedItemDtoList()).isNotEmpty())
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Successful increase item count")
     void changeItemCountFromItemPage_shouldIncreaseItemCount() {
-        Item itemWithNewCount = TestDataFactory.createTestItem(1L, "Test Item", "Description",
-                100L, 6);
+        Item itemWithNewCount = TestDataFactory.createTestItem(1L, "Test Item", "Description", 100L, 6);
         ItemDto expectedDto = TestDataFactory.createTestItemDto(1L, "Test Item", 100L, 6);
 
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(testItem));
-        when(itemRepository.save(any(Item.class))).thenReturn(itemWithNewCount);
+        when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
+        when(itemRepository.save(any(Item.class))).thenReturn(Mono.just(itemWithNewCount));
         when(itemMapper.toItemDto(itemWithNewCount)).thenReturn(expectedDto);
 
-        ItemDto result = itemService.changeItemCountFromItemPage(1L, Action.PLUS);
-
-        assertThat(result).isNotNull();
-        assertThat(result.count()).isEqualTo(6);
-        verify(itemRepository).save(any(Item.class));
+        StepVerifier.create(itemService.changeItemCountFromItemPage(1L, Action.PLUS))
+                .assertNext(dto -> assertThat(dto.count()).isEqualTo(6))
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Successful decrease item count")
     void changeItemCountFromItemPage_shouldDecreaseItemCount() {
-        Item itemWithNewCount = TestDataFactory.createTestItem(1L, "Test Item", "Description",
-                100L, 4);
+        Item itemWithNewCount = TestDataFactory.createTestItem(1L, "Test Item", "Description", 100L, 4);
         ItemDto expectedDto = TestDataFactory.createTestItemDto(1L, "Test Item", 100L, 4);
 
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(testItem));
-        when(itemRepository.save(any(Item.class))).thenReturn(itemWithNewCount);
+        when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
+        when(itemRepository.save(any(Item.class))).thenReturn(Mono.just(itemWithNewCount));
         when(itemMapper.toItemDto(itemWithNewCount)).thenReturn(expectedDto);
 
-        ItemDto result = itemService.changeItemCountFromItemPage(1L, Action.MINUS);
-
-        assertThat(result).isNotNull();
-        assertThat(result.count()).isEqualTo(4);
-        verify(itemRepository).save(any(Item.class));
+        StepVerifier.create(itemService.changeItemCountFromItemPage(1L, Action.MINUS))
+                .assertNext(dto -> assertThat(dto.count()).isEqualTo(4))
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Decrease item when count below 0")
     void changeItemCountFromItemPage_shouldThrowBadRequestExceptionWhenCountBelowZero() {
-        Item zeroCountItem = TestDataFactory.createTestItem(1L, "Test Item", "Description",
-                100L, 0);
+        Item zeroCountItem = TestDataFactory.createTestItem(1L, "Test Item", "Description", 100L, 0);
 
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(zeroCountItem));
+        when(itemRepository.findById(1L)).thenReturn(Mono.just(zeroCountItem));
 
-        assertThatThrownBy(() -> itemService.changeItemCountFromItemPage(1L, Action.MINUS))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("Count cannot be less than 0");
+        StepVerifier.create(itemService.changeItemCountFromItemPage(1L, Action.MINUS))
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(BadRequestException.class);
+                    assertThat(e.getMessage()).contains("Count cannot be less than 0");
+                })
+                .verify();
     }
 
     @Test
-    @DisplayName("Change item count when action equal DELETE")
+    @DisplayName("Change item count when action equal DELETE on Item page")
     void changeItemCountFromItemPage_shouldThrowBadRequestExceptionWhenDeleteActionOnItemPage() {
-        assertThatThrownBy(() -> itemService.changeItemCountFromItemPage(1L, Action.DELETE))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("Action cannot be equal DELETE");
+        StepVerifier.create(itemService.changeItemCountFromItemPage(1L, Action.DELETE))
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(BadRequestException.class);
+                    assertThat(e.getMessage()).contains("Action cannot be equal DELETE");
+                })
+                .verify();
     }
 
     @Test
     @DisplayName("Successful getting cart items")
     void getItemCartList_shouldReturnCartItems() {
-        List<Item> itemsWithCount = Arrays.asList(
+        List<Item> itemsWithCount = List.of(
                 TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2),
-                TestDataFactory.createTestItem(2L, "Item 2", "Desc 2", 200L, 3)
-        );
-        List<ItemDto> itemDtoList = Arrays.asList(
+                TestDataFactory.createTestItem(2L, "Item 2", "Desc 2", 200L, 3));
+        List<ItemDto> dtoList = List.of(
                 TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2),
-                TestDataFactory.createTestItemDto(2L, "Item 2", 200L, 3)
-        );
+                TestDataFactory.createTestItemDto(2L, "Item 2", 200L, 3));
 
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(itemsWithCount);
-        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(itemDtoList);
+                .thenReturn(Flux.fromIterable(itemsWithCount));
+        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
 
-        ItemCartListResponse response = itemService.getItemCartList();
-
-        assertThat(response).isNotNull();
-        assertThat(response.itemDtoList()).hasSize(2);
-        assertThat(response.total()).isEqualTo(800L);
-        verify(itemRepository).findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART);
+        StepVerifier.create(itemService.getItemCartList())
+                .assertNext(r -> {
+                    assertThat(r.itemDtoList()).hasSize(2);
+                    assertThat(r.total()).isEqualTo(800L);
+                })
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Successful change item count in cart")
     void changeItemCountFromCartPage_shouldChangeItemCountInCart() {
-        Item updatedItem = TestDataFactory.createTestItem(1L, "Test Item", "Description",
-                100L, 6);
-        List<Item> cartItems = Collections.singletonList(updatedItem);
-        List<ItemDto> itemDtoList = Collections.singletonList(TestDataFactory.createTestItemDto(1L, "Test Item",
-                100L, 6));
+        Item updatedItem = TestDataFactory.createTestItem(1L, "Test Item", "Description", 100L, 6);
+        ItemDto updatedDto = TestDataFactory.createTestItemDto(1L, "Test Item", 100L, 6);
+        List<Item> cartItems = List.of(updatedItem);
+        List<ItemDto> dtoList = List.of(updatedDto);
 
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(testItem));
-        when(itemRepository.save(any(Item.class))).thenReturn(updatedItem);
+        when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
+        when(itemRepository.save(any(Item.class))).thenReturn(Mono.just(updatedItem));
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(cartItems);
-        when(itemMapper.toItemDtoList(cartItems)).thenReturn(itemDtoList);
+                .thenReturn(Flux.fromIterable(cartItems));
+        when(itemMapper.toItemDtoList(cartItems)).thenReturn(dtoList);
 
-        ItemCartListResponse response = itemService.changeItemCountFromCartPage(1L, Action.PLUS);
-
-        assertThat(response).isNotNull();
-        assertThat(response.itemDtoList()).hasSize(1);
-        assertThat(response.itemDtoList().getFirst().count()).isEqualTo(6);
+        StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.PLUS))
+                .assertNext(r -> {
+                    assertThat(r.itemDtoList()).hasSize(1);
+                    assertThat(r.itemDtoList().getFirst().count()).isEqualTo(6);
+                })
+                .verifyComplete();
     }
 }

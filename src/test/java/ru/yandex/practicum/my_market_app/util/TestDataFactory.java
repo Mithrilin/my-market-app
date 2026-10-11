@@ -4,6 +4,8 @@ import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
 import ru.yandex.practicum.my_market_app.enums.Sort;
 import ru.yandex.practicum.my_market_app.model.Item;
+import ru.yandex.practicum.my_market_app.model.Order;
+import ru.yandex.practicum.my_market_app.model.OrderItem;
 
 import java.util.List;
 
@@ -47,5 +49,22 @@ public class TestDataFactory {
 
     public static ItemListSearchRequest createSearchRequest(String search, Sort sort, Integer page, Integer size) {
         return new ItemListSearchRequest(search, sort, page, size);
+    }
+
+    public static OrderItem createTestOrderItem(Long id, Long orderId, String title, Long price, Integer count) {
+        return OrderItem.builder()
+                .id(id)
+                .orderId(orderId)
+                .title(title)
+                .price(price)
+                .count(count)
+                .build();
+    }
+
+    public static Order createTestOrder(Long id, Long totalSum) {
+        return Order.builder()
+                .id(id)
+                .totalSum(totalSum)
+                .build();
     }
 }

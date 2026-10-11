@@ -4,10 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.springframework.boot.test.autoconfigure.data.r2dbc.DataR2dbcTest;
+import reactor.test.StepVerifier;
 import ru.yandex.practicum.my_market_app.model.Item;
 import ru.yandex.practicum.my_market_app.util.TestDataFactory;
 
@@ -15,7 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
+@DataR2dbcTest
 class ItemRepositoryTest {
 
     @Autowired
@@ -23,94 +21,76 @@ class ItemRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        itemRepository.deleteAll();
+        itemRepository.deleteAll().block();
     }
 
     @Test
     @DisplayName("Successful Item search by title or description")
-    void findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase_shouldFindItemsByTitleOrDescriptionIgnoreCase() {
-        Item item1 = TestDataFactory.createTestItem(null, "Apple", "Red fruit",
-                100L, 5);
-        Item item2 = TestDataFactory.createTestItem(null, "Banana", "Yellow fruit",
-                150L, 3);
-        Item item3 = TestDataFactory.createTestItem(null, "Orange", "Citrus fruit",
-                120L, 2);
+    void search_shouldFindItemsByTitleOrDescriptionIgnoreCase() {
+        Item item1 = TestDataFactory.createTestItem(null, "Apple", "Red fruit", 100L, 5);
+        Item item2 = TestDataFactory.createTestItem(null, "Banana", "Yellow fruit", 150L, 3);
+        Item item3 = TestDataFactory.createTestItem(null, "Orange", "Citrus fruit", 120L, 2);
 
-        itemRepository.saveAll(List.of(item1, item2, item3));
+        itemRepository.saveAll(List.of(item1, item2, item3)).blockLast();
 
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Item> result = itemRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                "apple", "apple", pageable);
-
-        assertThat(result.getContent()).hasSize(1);
-        assertThat(result.getContent().getFirst().getTitle()).isEqualTo("Apple");
+        StepVerifier.create(itemRepository.search("apple", 10, 0))
+                .assertNext(item -> assertThat(item.getTitle()).isEqualTo("Apple"))
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Successful Item search based on the title")
-    void findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase_shouldFindItemsByPartialTitle() {
-        Item item1 = TestDataFactory.createTestItem(null, "Laptop", "Portable computer",
-                1000L, 5);
-        Item item2 = TestDataFactory.createTestItem(null, "Tablet", "Mobile device",
-                500L, 3);
-        Item item3 = TestDataFactory.createTestItem(null, "Desktop", "Stationary computer",
-                1500L, 2);
+    void search_shouldFindItemsByPartialTitle() {
+        Item item1 = TestDataFactory.createTestItem(null, "Laptop", "Portable computer", 1000L, 5);
+        Item item2 = TestDataFactory.createTestItem(null, "Tablet", "Mobile device", 500L, 3);
+        Item item3 = TestDataFactory.createTestItem(null, "Desktop", "Stationary computer", 1500L, 2);
 
-        itemRepository.saveAll(List.of(item1, item2, item3));
+        itemRepository.saveAll(List.of(item1, item2, item3)).blockLast();
 
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Item> result = itemRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                "lap", "lap", pageable);
-
-        assertThat(result.getContent()).hasSize(1);
-        assertThat(result.getContent().getFirst().getTitle()).isEqualTo("Laptop");
+        StepVerifier.create(itemRepository.search("lap", 10, 0))
+                .assertNext(item -> assertThat(item.getTitle()).isEqualTo("Laptop"))
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Successful Item search based on the description")
-    void findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase_shouldFindItemsByPartialDescription() {
-        Item item1 = TestDataFactory.createTestItem(null, "Phone", "Smartphone with large screen",
-                800L, 5);
-        Item item2 = TestDataFactory.createTestItem(null, "TV", "Large screen television",
-                1200L, 3);
+    void search_shouldFindItemsByPartialDescription() {
+        Item item1 = TestDataFactory.createTestItem(null, "Phone", "Smartphone with large screen", 800L, 5);
+        Item item2 = TestDataFactory.createTestItem(null, "TV", "Large screen television", 1200L, 3);
 
-        itemRepository.saveAll(List.of(item1, item2));
+        itemRepository.saveAll(List.of(item1, item2)).blockLast();
 
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Item> result = itemRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                "screen", "screen", pageable);
-
-        assertThat(result.getContent()).hasSize(2);
+        StepVerifier.create(itemRepository.search("screen", 10, 0))
+                .expectNextCount(2)
+                .verifyComplete();
     }
 
     @Test
     @DisplayName("Item search when no matches")
-    void findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase_shouldReturnEmptyPageWhenNoMatches() {
-        Item item = TestDataFactory.createTestItem(null, "Laptop", "Portable computer",
-                1000L, 5);
-        itemRepository.save(item);
+    void search_shouldReturnEmptyWhenNoMatches() {
+        Item item = TestDataFactory.createTestItem(null, "Laptop", "Portable computer", 1000L, 5);
+        itemRepository.save(item).block();
 
-        Pageable pageable = PageRequest.of(0, 10);
-        Page<Item> result = itemRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                "nonexistent", "nonexistent", pageable);
+        StepVerifier.create(itemRepository.search("nonexistent", 10, 0))
+                .verifyComplete();
 
-        assertThat(result.getContent()).isEmpty();
-        assertThat(result.getTotalElements()).isZero();
+        StepVerifier.create(itemRepository.countSearch("nonexistent"))
+                .expectNext(0L)
+                .verifyComplete();
     }
 
     @Test
-    @DisplayName("Getting item with count greater than equal")
+    @DisplayName("Getting items with count greater than equal")
     void findByCountGreaterThanEqual_shouldFindItemsWithCountGreaterThanEqual() {
         Item item1 = TestDataFactory.createTestItem(null, "Item 1", "Desc 1", 100L, 3);
         Item item2 = TestDataFactory.createTestItem(null, "Item 2", "Desc 2", 200L, 1);
         Item item3 = TestDataFactory.createTestItem(null, "Item 3", "Desc 3", 300L, 0);
 
-        itemRepository.saveAll(List.of(item1, item2, item3));
+        itemRepository.saveAll(List.of(item1, item2, item3)).blockLast();
 
-        List<Item> result = itemRepository.findByCountGreaterThanEqual(1);
-
-        assertThat(result).hasSize(2);
-        assertThat(result).extracting(Item::getTitle)
-                .containsExactlyInAnyOrder("Item 1", "Item 2");
+        StepVerifier.create(itemRepository.findByCountGreaterThanEqual(1))
+                .assertNext(i -> assertThat(i.getTitle()).isEqualTo("Item 1"))
+                .assertNext(i -> assertThat(i.getTitle()).isEqualTo("Item 2"))
+                .verifyComplete();
     }
 }
