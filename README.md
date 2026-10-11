@@ -1,22 +1,34 @@
 # My Market App
 
-Spring Boot-приложение для интернет‑магазина: каталог товаров, корзина, оформление заказов.
+Реактивное Spring Boot-приложение для интернет-магазина: каталог товаров, корзина, оформление заказов.
 
 ---
 
 ## Технологический стек
 
 - **Java 21** — основной язык программирования
-- **Spring Boot 4.1.0** — фреймворк для создания веб-приложений
-- **Spring MVC** — для построения веб-интерфейса
-- **Spring Data JPA** — для работы с базой данных
-- **Spring Validation** — для валидации входных данных
-- **Thymeleaf** — шаблонизатор для формирования HTML-страниц
+- **Spring Boot 3.4.1** — фреймворк для создания приложений
+- **Spring WebFlux** — реактивный веб-стек (Project Reactor, Netty)
+- **Spring Data R2DBC** — реактивный доступ к реляционной БД
+- **Spring Validation** — валидация входных данных
+- **Thymeleaf** — шаблонизатор для формирования HTML-страниц (реактивный режим)
 - **PostgreSQL** — реляционная база данных
-- **Lombok** — для уменьшения шаблонного кода (геттеры, сеттеры, конструкторы)
-- **MapStruct** — для маппинга объектов между слоями приложения
-- **Maven** — система сборки и управления зависимостями
-- **Docker** — для контейнеризации приложения
+- **R2DBC PostgreSQL Driver** — реактивный драйвер PostgreSQL
+- **Lombok** — сокращение шаблонного кода (геттеры, сеттеры, конструкторы)
+- **MapStruct** — маппинг объектов между слоями
+- **Maven** — система сборки
+- **Reactor Test** — тестирование реактивных потоков (`StepVerifier`)
+- **Testcontainers** — интеграционные тесты с реальным PostgreSQL
+- **Docker** — контейнеризация
+
+## Ключевые особенности реактивной реализации
+
+- **Неблокирующий ввод-вывод** — все операции возвращают `Mono<T>` или `Flux<T>`
+- **R2DBC вместо JDBC** — реактивный доступ к PostgreSQL без блокировок потоков
+- **Связи между сущностями собираются в сервисе** — R2DBC не поддерживает `@OneToMany`/`@ManyToOne`
+- **Thymeleaf в реактивном режиме** — рендеринг возвращает `Mono<Rendering>` вместо `Model`
+- **Редиректы с параметрами строятся вручную** — в WebFlux `Rendering.redirectTo(...).modelAttribute(...)` не добавляет параметры в URL
+- **Централизованный `ErrorHandler`** — возвращает `Mono<Rendering>` с корректными HTTP-статусами
 
 ## Функциональные возможности
 
@@ -47,10 +59,12 @@ Spring Boot-приложение для интернет‑магазина: к�
 - Отображение статуса нового заказа
 
 ### Обработка ошибок
-- Централизованный обработчик исключений
-- Информативные сообщения об ошибках
+- Централизованный реактивный обработчик исключений (`@ControllerAdvice`)
+- Корректные HTTP-статусы:
+  - `400 Bad Request` — отсутствующие/невалидные параметры (`MissingRequestValueException`, `ConstraintViolationException`, `WebExchangeBindException`)
+  - `404 Not Found` — сущность не найдена (`NotFoundException`)
+  - `500 Internal Server Error` — непредвиденные ошибки
 - Логирование всех ошибок
-- Валидация входных данных с понятными сообщениями
 
 ## API Endpoints
 
@@ -96,8 +110,8 @@ cd my-market-app
 2. **Настройте подключение к PostgreSQL в файле src/main/resources/application.yaml:**
 ```bash
 spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/market-bd
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/market-bd
     username: postgres
     password: postgres
 ```
@@ -157,6 +171,70 @@ docker-compose down
 mvn clean
 mvn compile
 ```
+
+## Тестирование
+
+### Структура тестов
+
+| Тест | Тип | Что проверяет |
+|---|---|---|
+| `ItemRepositoryTest` | Интеграционный (`@DataR2dbcTest` + Testcontainers) | Реальные SQL-запросы к PostgreSQL |
+| `ItemServiceImplTest` | Юнит (Mockito + `StepVerifier`) | Логика сервиса товаров |
+| `OrderServiceImplTest` | Юнит (Mockito + `StepVerifier`) | Логика сервиса заказов |
+| `ItemControllerTest` | WebFlux (`@WebFluxTest` + `WebTestClient`) | HTTP-слой: товары |
+| `ItemCartControllerTest` | WebFlux (`@WebFluxTest` + `WebTestClient`) | HTTP-слой: корзина |
+| `OrderControllerTest` | WebFlux (`@WebFluxTest` + `WebTestClient`) | HTTP-слой: заказы |
+
+### Что покрывают тесты
+
+**`ItemRepositoryTest`** — интеграционные тесты поверх реального PostgreSQL через Testcontainers:
+- поиск товаров по названию и описанию (регистронезависимый)
+- поиск по частичному совпадению в title и description
+- пустой результат при отсутствии совпадений
+- выборка товаров с `count >= 1` (товары в корзине)
+- корректная работа `LIMIT/OFFSET` при пагинации
+
+**`ItemServiceImplTest`** — юнит-тесты сервиса товаров с моками репозитория и маппера:
+- получение товара по ID (успех и `NotFoundException`)
+- получение списка товаров с пагинацией и поиском
+- увеличение/уменьшение количества товара
+- запрет уменьшения ниже нуля (`BadRequestException`)
+- запрет действия `DELETE` на странице товара
+- получение корзины с корректным подсчётом суммы
+- изменение количества товара из корзины
+
+**`OrderServiceImplTest`** — юнит-тесты сервиса заказов:
+- получение списка и конкретного заказа
+- `NotFoundException` при отсутствии заказа
+- создание заказа с корректным подсчётом суммы
+- корректный `orderId` во всех `OrderItem` после сохранения
+- обнуление `count` у товаров после оформления заказа
+- работа при пустой корзине
+
+**`ItemControllerTest`**, **`ItemCartControllerTest`**, **`OrderControllerTest`** — тесты HTTP-слоя через `WebTestClient`:
+- корректные `200 OK` при успешных операциях
+- `303 See Other` при редиректах с сохранением параметров (`search`, `sort`, `pageNumber`, `pageSize`)
+- `400 Bad Request` при отсутствующих/невалидных параметрах
+- проверка, что `Location` в редиректах содержит нужные query-параметры
+
+### Ключевые инструменты
+
+- **`StepVerifier`** — для проверки реактивных потоков (`Mono`/`Flux`) вместо `.block()`:
+
+  ```java
+  StepVerifier.create(itemService.getItemById(1L))
+          .assertNext(dto -> assertThat(dto.id()).isEqualTo(1L))
+          .verifyComplete();
+
+- **`WebTestClient`** — реактивная альтернатива `MockMvc`:
+
+  ```java
+  webTestClient.get().uri("/items/1")
+          .exchange()
+          .expectStatus().isOk();
+
+- **`@MockitoBean`** — современная замена устаревшего `@MockBean` (Spring Boot 3.4+):
+- **Testcontainers** — поднимает реальный PostgreSQL в Docker для интеграционных тестов:
 
 ## Структура базы данных
 
