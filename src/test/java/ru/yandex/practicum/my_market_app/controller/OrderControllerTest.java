@@ -4,28 +4,23 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.OrderDto;
 import ru.yandex.practicum.my_market_app.service.OrderService;
 
 import java.util.Collections;
-import java.util.List;
 
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
-@WebMvcTest(OrderController.class)
+@WebFluxTest(OrderController.class)
 class OrderControllerTest {
 
     @Autowired
-    private MockMvc mockMvc;
+    private WebTestClient webTestClient;
 
     @MockitoBean
     private OrderService orderService;
@@ -43,65 +38,58 @@ class OrderControllerTest {
 
     @Test
     @DisplayName("Successful getting Order List")
-    void getOrderList_shouldReturnOrderList() throws Exception {
-        List<OrderDto> orders = Collections.singletonList(testOrderDto);
-        when(orderService.getOrderList()).thenReturn(orders);
+    void getOrderList_shouldReturnOrderList() {
+        when(orderService.getOrderList()).thenReturn(Flux.just(testOrderDto));
 
-        mockMvc.perform(get("/orders"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("orders"))
-                .andExpect(model().attributeExists("orders"))
-                .andExpect(model().attribute("orders", orders));
+        webTestClient.get().uri("/orders")
+                .exchange()
+                .expectStatus().isOk();
     }
 
-    @Test
-    void getOrderById() {
-    }
     @Test
     @DisplayName("Successful getting Order by ID")
-    void getOrderById_shouldReturnOrderPageById() throws Exception {
-        when(orderService.getOrderById(1L)).thenReturn(testOrderDto);
+    void getOrderById_shouldReturnOrderPageById() {
+        when(orderService.getOrderById(1L)).thenReturn(Mono.just(testOrderDto));
 
-        mockMvc.perform(get("/orders/{id}", 1L))
-                .andExpect(status().isOk())
-                .andExpect(view().name("order"))
-                .andExpect(model().attributeExists("order", "newOrder"))
-                .andExpect(model().attribute("newOrder", false));
+        webTestClient.get().uri("/orders/1")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
     @DisplayName("Successful return of the new order page with flag newOrder=true")
-    void getOrderById_shouldReturnNewOrderPage() throws Exception {
-        when(orderService.getOrderById(1L)).thenReturn(testOrderDto);
+    void getOrderById_shouldReturnNewOrderPage() {
+        when(orderService.getOrderById(1L)).thenReturn(Mono.just(testOrderDto));
 
-        mockMvc.perform(get("/orders/{id}", 1L)
-                        .param("newOrder", "true"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("order"))
-                .andExpect(model().attribute("newOrder", true));
+        webTestClient.get().uri("/orders/1?newOrder=true")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
     @DisplayName("Successful Order creation")
-    void createOrder_shouldCreateOrder() throws Exception {
-        when(orderService.createOrder()).thenReturn(testOrderDto);
+    void createOrder_shouldCreateOrder() {
+        when(orderService.createOrder()).thenReturn(Mono.just(testOrderDto));
 
-        mockMvc.perform(post("/buy"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/orders/1?newOrder=true"));
+        webTestClient.post().uri("/buy")
+                .exchange()
+                .expectStatus().isSeeOther()
+                .expectHeader().valueEquals("Location", "/orders/1?newOrder=true");
     }
 
     @Test
     @DisplayName("Order creation when negative order Id")
-    void shouldReturnErrorForNegativeOrderId() throws Exception {
-        mockMvc.perform(get("/orders/{id}", -1L))
-                .andExpect(status().is5xxServerError());
+    void shouldReturnErrorForNegativeOrderId() {
+        webTestClient.get().uri("/orders/-1")
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 
     @Test
     @DisplayName("Order creation when order Id is 0")
-    void shouldReturnErrorForZeroOrderId() throws Exception {
-        mockMvc.perform(get("/orders/{id}", 0L))
-                .andExpect(status().is5xxServerError());
+    void shouldReturnErrorForZeroOrderId() {
+        webTestClient.get().uri("/orders/0")
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 }

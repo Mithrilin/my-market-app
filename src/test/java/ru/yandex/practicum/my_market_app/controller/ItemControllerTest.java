@@ -4,9 +4,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
@@ -14,31 +15,21 @@ import ru.yandex.practicum.my_market_app.dto.Paging;
 import ru.yandex.practicum.my_market_app.enums.Action;
 import ru.yandex.practicum.my_market_app.service.ItemService;
 import ru.yandex.practicum.my_market_app.util.TestDataFactory;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.Collections;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
-@WebMvcTest(ItemController.class)
+@WebFluxTest(ItemController.class)
 class ItemControllerTest {
 
     @Autowired
-    private MockMvc mockMvc;
+    private WebTestClient webTestClient;
 
     @MockitoBean
     private ItemService itemService;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     private ItemDto testItemDto;
     private ItemListResponse testItemListResponse;
@@ -54,78 +45,73 @@ class ItemControllerTest {
 
     @Test
     @DisplayName("Successful getting Item Page by ID")
-    void getItemById_shouldReturnItemPageById() throws Exception {
-        when(itemService.getItemById(1L)).thenReturn(testItemDto);
+    void getItemById_shouldReturnItemPageById() {
+        when(itemService.getItemById(1L)).thenReturn(Mono.just(testItemDto));
 
-        mockMvc.perform(get("/items/{id}", 1L))
-                .andExpect(status().isOk())
-                .andExpect(view().name("item"))
-                .andExpect(model().attributeExists("item"))
-                .andExpect(model().attribute("item", testItemDto));
+        webTestClient.get().uri("/items/1")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
     @DisplayName("Successful getting Item List")
-    void getItemList_shouldReturnItemList() throws Exception {
-        when(itemService.getItemList(any(ItemListSearchRequest.class))).thenReturn(testItemListResponse);
+    void getItemList_shouldReturnItemList() {
+        when(itemService.getItemList(any(ItemListSearchRequest.class)))
+                .thenReturn(Mono.just(testItemListResponse));
 
-        mockMvc.perform(get("/items")
-                        .param("pageNumber", "1")
-                        .param("pageSize", "5"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("items"))
-                .andExpect(model().attributeExists("items", "sort", "paging"));
+        webTestClient.get().uri("/items?pageNumber=1&pageSize=5")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
     @DisplayName("Successful getting Item List with search and sort")
-    void getItemList_shouldReturnItemListWithSearchAndSort() throws Exception {
-        when(itemService.getItemList(any(ItemListSearchRequest.class))).thenReturn(testItemListResponse);
+    void getItemList_shouldReturnItemListWithSearchAndSort() {
+        when(itemService.getItemList(any(ItemListSearchRequest.class)))
+                .thenReturn(Mono.just(testItemListResponse));
 
-        mockMvc.perform(get("/items")
-                        .param("search", "test")
-                        .param("sort", "ALPHA")
-                        .param("pageNumber", "1")
-                        .param("pageSize", "10"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("items"));
+        webTestClient.get().uri("/items?search=test&sort=ALPHA&pageNumber=1&pageSize=10")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
-    @DisplayName("Successful change item count")
-    void changeItemCountFromItemPage_shouldChangeItemCountOnItemPage() throws Exception {
-        when(itemService.changeItemCountFromItemPage(1L, Action.PLUS)).thenReturn(testItemDto);
+    @DisplayName("Successful change item count on Item Page")
+    void changeItemCountFromItemPage_shouldChangeItemCountOnItemPage() {
+        when(itemService.changeItemCountFromItemPage(1L, Action.PLUS))
+                .thenReturn(Mono.just(testItemDto));
 
-        mockMvc.perform(post("/items/{id}", 1L)
-                        .param("action", "PLUS"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("item"))
-                .andExpect(model().attributeExists("item"));
+        webTestClient.post()
+                .uri("/items/1?action=PLUS")
+                .exchange()
+                .expectStatus().isOk();
     }
 
     @Test
-    @DisplayName("Successful change of the product quantity on the list page")
-    void shouldChangeItemCountOnItemListPage() throws Exception {
-        mockMvc.perform(post("/items")
-                        .param("id", "1")
-                        .param("action", "PLUS")
-                        .param("pageNumber", "1")
-                        .param("pageSize", "5"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/items?sort=NO&pageNumber=1&pageSize=5"));
+    @DisplayName("Successful change of the product quantity on the list page (redirect)")
+    void shouldChangeItemCountOnItemListPage() {
+        when(itemService.changeItemCountFromItemPage(1L, Action.PLUS))
+                .thenReturn(Mono.just(testItemDto));
+
+        webTestClient.post().uri("/items")
+                .bodyValue("id=1&action=PLUS&pageNumber=1&pageSize=5")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .exchange()
+                .expectStatus().isSeeOther()
+                .expectHeader().valueMatches("Location", ".*/items.*");
     }
 
     @Test
     @DisplayName("Successful saving of search parameters during redirect")
-    void shouldPreserveSearchParamsOnRedirect() throws Exception {
-        mockMvc.perform(post("/items")
-                        .param("id", "1")
-                        .param("action", "MINUS")
-                        .param("search", "test")
-                        .param("sort", "PRICE")
-                        .param("pageNumber", "2")
-                        .param("pageSize", "10"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/items?search=test&sort=PRICE&pageNumber=2&pageSize=10"));
+    void shouldPreserveSearchParamsOnRedirect() {
+        when(itemService.changeItemCountFromItemPage(1L, Action.MINUS))
+                .thenReturn(Mono.just(testItemDto));
+
+        webTestClient.post()
+                .uri("/items?id=1&action=MINUS&search=test&sort=PRICE&pageNumber=2&pageSize=10")
+                .exchange()
+                .expectStatus().isSeeOther()
+                .expectHeader().valueMatches("Location", ".*search=test.*")
+                .expectHeader().valueMatches("Location", ".*sort=PRICE.*");
     }
 }

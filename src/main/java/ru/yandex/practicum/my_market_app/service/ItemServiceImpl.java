@@ -2,17 +2,16 @@ package ru.yandex.practicum.my_market_app.service;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.ItemCartListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemDto;
 import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
 import ru.yandex.practicum.my_market_app.dto.Paging;
 import ru.yandex.practicum.my_market_app.enums.Action;
+import ru.yandex.practicum.my_market_app.enums.Sort;
 import ru.yandex.practicum.my_market_app.exception.BadRequestException;
 import ru.yandex.practicum.my_market_app.exception.NotFoundException;
 import ru.yandex.practicum.my_market_app.mapper.ItemMapper;
@@ -29,94 +28,85 @@ public class ItemServiceImpl implements ItemService {
 
     public static final Integer MIN_COUNT_ITEMS_IN_CART = 1;
     private static final long PLUG_ID = -1L;
-    private static final ItemDto PLUG = ItemDto.builder()
-            .id(PLUG_ID)
-            .title("plug")
-            .build();
+    private static final ItemDto PLUG = ItemDto.builder().id(PLUG_ID).title("plug").build();
 
     private final ItemRepository itemRepository;
 
     private final ItemMapper itemMapper;
 
     @Override
-    public ItemDto getItemById(Long id) {
-        Item item = findItemById(id);
-        ItemDto itemDto = itemMapper.toItemDto(item);
-        log.info("Item with ID = {} returned.", itemDto.id());
-        return itemDto;
+    public Mono<ItemDto> getItemById(Long id) {
+        Mono<ItemDto> itemDtoMono = findItemById(id).map(itemMapper::toItemDto);
+        log.info("Item with ID = {} returned.", id);
+        return itemDtoMono;
     }
 
     @Override
-    public ItemListResponse getItemList(ItemListSearchRequest itemListSearchRequest) {
-        Page<Item> itemPage = getItemPage(itemListSearchRequest);
-        List<Item> itemList = itemPage.getContent();
-        List<ItemDto> itemDtoList = itemMapper.toItemDtoList(itemList);
-        Paging paging = new Paging(itemListSearchRequest.pageSize(), itemListSearchRequest.pageNumber(),
-                itemPage.hasPrevious(), itemPage.hasNext());
-        List<List<ItemDto>> splittedItemDtoList = splitIntoChunksOfThree(itemDtoList);
-        ItemListResponse itemListResponse = new ItemListResponse(splittedItemDtoList, paging);
-        log.info("Item page with number = {} size = {} has been returned.", itemListSearchRequest.pageNumber(),
-                itemListSearchRequest.pageSize());
-        return itemListResponse;
+    public Mono<ItemListResponse> getItemList(ItemListSearchRequest req) {
+        int limit = req.pageSize();
+        int offset = (req.pageNumber() - 1) * req.pageSize();
+        String search = req.search();
+        boolean hasSearch = search != null && !search.isBlank();
+
+        Flux<Item> itemsFlux = resolveItemsFlux(req.sort(), hasSearch, search, limit, offset);
+        Mono<Long> totalMono = hasSearch
+                ? itemRepository.countSearch(search)
+                : itemRepository.count();
+
+        Mono<ItemListResponse> itemListResponseMono = itemsFlux.collectList()
+                .zipWith(totalMono)
+                .map(tuple -> {
+                    List<Item> items = tuple.getT1();
+                    long total = tuple.getT2();
+                    List<ItemDto> itemDtoList = itemMapper.toItemDtoList(items);
+                    List<List<ItemDto>> splittedItemDtoList = splitIntoChunksOfThree(itemDtoList);
+                    boolean hasPrev = req.pageNumber() > 1;
+                    boolean hasNext = (long) req.pageNumber() * req.pageSize() < total;
+                    Paging paging = new Paging(req.pageSize(), req.pageNumber(), hasPrev, hasNext);
+                    return new ItemListResponse(splittedItemDtoList, paging);
+                });
+        log.info("Item page has been returned.");
+        return itemListResponseMono;
     }
 
     @Override
-    @Transactional
-    public ItemDto changeItemCountFromItemPage(Long itemId, Action action) {
-        if (action.equals(Action.DELETE)) {
-            throw new BadRequestException("Action cannot be equal DELETE.");
+    public Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action) {
+        if (action == Action.DELETE) {
+            return Mono.error(new BadRequestException("Action cannot be equal DELETE."));
         }
-        Item returnedItem = changeItemCount(itemId, action);
-        ItemDto itemDto = itemMapper.toItemDto(returnedItem);
-        log.info("Count of Item with ID {} has been changed from item page. New count = {}.", itemId, itemDto.count());
-        return itemDto;
+        Mono<ItemDto> itemDtoMono = changeItemCount(itemId, action).map(itemMapper::toItemDto);
+        log.info("Count of Item with ID {} has been changed from item page.", itemId);
+        return itemDtoMono;
     }
 
     @Override
-    public ItemCartListResponse getItemCartList() {
-        ItemCartListResponse itemCartListResponse = getItemCartListResponse();
-        log.info("ItemCartList with size = {} and total price {} has been returned",
-                itemCartListResponse.itemDtoList().size(), itemCartListResponse.total());
-        return itemCartListResponse;
+    public Mono<ItemCartListResponse> getItemCartList() {
+        Mono<ItemCartListResponse> itemCartListResponseMono = buildCartResponse();
+        log.info("ItemCartList has been returned");
+        return itemCartListResponseMono;
     }
 
     @Override
-    @Transactional
-    public ItemCartListResponse changeItemCountFromCartPage(Long itemId, Action action) {
-        Item returnedItem = changeItemCount(itemId, action);
-        ItemCartListResponse itemCartListResponse = getItemCartListResponse();
-        log.info("Count of Item with ID {} has been changed from cart page. New count = {}.",
-                itemId, returnedItem.getCount());
-        return itemCartListResponse;
+    public Mono<ItemCartListResponse> changeItemCountFromCartPage(Long itemId, Action action) {
+        Mono<ItemCartListResponse> itemCartListResponseMono = changeItemCount(itemId, action).then(buildCartResponse());
+        log.info("Count of Item with ID {} has been changed from cart page.", itemId);
+        return itemCartListResponseMono;
     }
 
-    private ItemCartListResponse getItemCartListResponse() {
-        List<Item> itemList = itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART);
-        long total = 0L;
-        for (Item item : itemList) {
-            total = total + item.getPrice() * item.getCount();
-        }
-        List<ItemDto> itemDtoList = itemMapper.toItemDtoList(itemList);
-        return new ItemCartListResponse(itemDtoList, total);
-    }
-
-    private Page<Item> getItemPage(ItemListSearchRequest itemListSearchRequest) {
-        Sort sort = switch (itemListSearchRequest.sort()) {
-            case ALPHA -> Sort.by(Sort.Direction.ASC, "title");
-            case PRICE -> Sort.by(Sort.Direction.ASC, "price");
-            default -> Sort.by(Sort.Direction.ASC, "id");
-        };
-        PageRequest pageRequest = PageRequest.of(itemListSearchRequest.pageNumber() - 1,
-                itemListSearchRequest.pageSize(), sort);
-        String search = itemListSearchRequest.search();
-        Page<Item> itemPage;
-        if (search == null) {
-            itemPage = itemRepository.findAll(pageRequest);
+    private Flux<Item> resolveItemsFlux(Sort sort, boolean hasSearch, String search, int limit, int offset) {
+        if (hasSearch) {
+            return switch (sort) {
+                case ALPHA -> itemRepository.searchOrderByTitle(search, limit, offset);
+                case PRICE -> itemRepository.searchOrderByPrice(search, limit, offset);
+                default    -> itemRepository.searchOrderById(search, limit, offset);
+            };
         } else {
-            itemPage = itemRepository
-                    .findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(search, search, pageRequest);
+            return switch (sort) {
+                case ALPHA -> itemRepository.findAllOrderByTitle(limit, offset);
+                case PRICE -> itemRepository.findAllOrderByPrice(limit, offset);
+                default    -> itemRepository.findAllOrderById(limit, offset);
+            };
         }
-        return itemPage;
     }
 
     private List<List<ItemDto>> splitIntoChunksOfThree(List<ItemDto> itemDtoList) {
@@ -134,25 +124,38 @@ public class ItemServiceImpl implements ItemService {
         return chunkList;
     }
 
-    private Item changeItemCount(Long itemId, Action action) {
-        Item item = findItemById(itemId);
-        Integer count = item.getCount();
-        if (action.equals(Action.MINUS)) {
-            if (count == 0) {
-                throw new BadRequestException("Count cannot be less than 0");
+    private Mono<Item> changeItemCount(Long itemId, Action action) {
+        return findItemById(itemId).flatMap(item -> {
+            Integer count = item.getCount();
+            switch (action) {
+                case MINUS -> {
+                    if (count == 0) {
+                        return Mono.error(new BadRequestException("Count cannot be less than 0"));
+                    }
+                    item.setCount(count - 1);
+                }
+                case PLUS -> item.setCount(count + 1);
+                case DELETE -> item.setCount(0);
             }
-            --count;
-        } else if (action.equals(Action.PLUS)){
-            ++count;
-        } else {
-            count = 0;
-        }
-        item.setCount(count);
-        return itemRepository.save(item);
+            return itemRepository.save(item);
+        });
     }
 
-    private Item findItemById(Long itemId) {
+    private Mono<Item> findItemById(Long itemId) {
         return itemRepository.findById(itemId)
-                .orElseThrow(() -> new NotFoundException(String.format("Item with ID = %d not found", itemId)));
+                .switchIfEmpty(Mono.error(
+                        new NotFoundException(String.format("Item with ID = %d not found", itemId))));
+    }
+
+    private Mono<ItemCartListResponse> buildCartResponse() {
+        return itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
+                .collectList()
+                .map(items -> {
+                    long total = items.stream()
+                            .mapToLong(i -> i.getPrice() * i.getCount())
+                            .sum();
+                    List<ItemDto> dtos = itemMapper.toItemDtoList(items);
+                    return new ItemCartListResponse(dtos, total);
+                });
     }
 }

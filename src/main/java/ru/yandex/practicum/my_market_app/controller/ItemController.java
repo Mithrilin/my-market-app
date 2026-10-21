@@ -5,17 +5,16 @@ import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+import org.springframework.web.reactive.result.view.Rendering;
+import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.ItemChangeCountRequest;
-import ru.yandex.practicum.my_market_app.dto.ItemDto;
-import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
 import ru.yandex.practicum.my_market_app.enums.Action;
 import ru.yandex.practicum.my_market_app.service.ItemService;
@@ -29,52 +28,55 @@ public class ItemController {
     private final ItemService itemService;
 
     @GetMapping("/items/{id}")
-    public String getItemById(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
-                              Model model) {
+    public Mono<Rendering> getItemById(@PathVariable @Positive(message = "Id must be greater than 0") Long id) {
         log.debug("Getting item by ID {}.", id);
-        ItemDto itemDto = itemService.getItemById(id);
-        model.addAttribute("item", itemDto);
-        return "item";
+        return itemService.getItemById(id)
+                .map(item -> Rendering.view("item")
+                        .modelAttribute("item", item)
+                        .build());
     }
 
     @GetMapping({"/", "/items"})
-    public String getItemList(@Valid @ModelAttribute ItemListSearchRequest itemListSearchRequest,
-                              Model model) {
+    public Mono<Rendering> getItemList(@Valid @ModelAttribute ItemListSearchRequest req) {
         log.info("Getting the list of items.");
-        ItemListResponse itemListResponse = itemService.getItemList(itemListSearchRequest);
-        model.addAttribute("items", itemListResponse.splittedItemDtoList());
-        model.addAttribute("search", itemListSearchRequest.search());
-        model.addAttribute("sort", itemListSearchRequest.sort());
-        model.addAttribute("paging", itemListResponse.paging());
-        return "items";
+        return itemService.getItemList(req)
+                .map(response -> Rendering.view("items")
+                        .modelAttribute("items", response.splittedItemDtoList())
+                        .modelAttribute("search", req.search())
+                        .modelAttribute("sort", req.sort())
+                        .modelAttribute("paging", response.paging())
+                        .build());
     }
 
     @PostMapping("/items/{id}")
-    public String changeItemCountFromItemPage(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
-                                              @RequestParam Action action,
-                                              Model model) {
+    public Mono<Rendering> changeItemCountFromItemPage(@PathVariable @Positive(message = "Id must be greater than 0")
+                                                       Long id,
+                                                       @RequestParam Action action) {
         log.info("Changing count of item with ID {}.", id);
-        ItemDto itemDto = itemService.changeItemCountFromItemPage(id, action);
-        model.addAttribute("item", itemDto);
-        return "item";
+        return itemService.changeItemCountFromItemPage(id, action)
+                .map(item -> Rendering.view("item")
+                        .modelAttribute("item", item)
+                        .build());
     }
 
     @PostMapping("/items")
-    public String changeItemCountFromItemListPage(@Valid @ModelAttribute
-                                                  ItemChangeCountRequest itemChangeCountRequest,
-                                                  RedirectAttributes redirectAttributes) {
+    public Mono<Rendering> changeItemCountFromItemListPage(@Valid @ModelAttribute ItemChangeCountRequest req) {
         log.info("Changing count of item from item list page.");
-        itemService.changeItemCountFromItemPage(itemChangeCountRequest.id(), itemChangeCountRequest.action());
+        return itemService.changeItemCountFromItemPage(req.id(), req.action())
+                .thenReturn(Rendering.redirectTo(buildItemsUrl(req)).build());
+    }
 
-        if (itemChangeCountRequest.search() != null) {
-            redirectAttributes.addAttribute("search", itemChangeCountRequest.search());
-        }
-        if (itemChangeCountRequest.sort() != null) {
-            redirectAttributes.addAttribute("sort", itemChangeCountRequest.sort());
-        }
+    private String buildItemsUrl(ItemChangeCountRequest req) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/items")
+                .queryParam("pageNumber", req.pageNumber())
+                .queryParam("pageSize", req.pageSize());
 
-        redirectAttributes.addAttribute("pageNumber", itemChangeCountRequest.pageNumber());
-        redirectAttributes.addAttribute("pageSize", itemChangeCountRequest.pageSize());
-        return "redirect:/items";
+        if (req.search() != null && !req.search().isBlank()) {
+            builder.queryParam("search", req.search());
+        }
+        if (req.sort() != null) {
+            builder.queryParam("sort", req.sort());
+        }
+        return builder.build().toUriString();
     }
 }
