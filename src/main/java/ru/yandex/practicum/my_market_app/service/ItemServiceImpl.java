@@ -11,6 +11,7 @@ import ru.yandex.practicum.my_market_app.dto.ItemListResponse;
 import ru.yandex.practicum.my_market_app.dto.ItemListSearchRequest;
 import ru.yandex.practicum.my_market_app.dto.Paging;
 import ru.yandex.practicum.my_market_app.enums.Action;
+import ru.yandex.practicum.my_market_app.enums.Sort;
 import ru.yandex.practicum.my_market_app.exception.BadRequestException;
 import ru.yandex.practicum.my_market_app.exception.NotFoundException;
 import ru.yandex.practicum.my_market_app.mapper.ItemMapper;
@@ -45,12 +46,12 @@ public class ItemServiceImpl implements ItemService {
         int limit = req.pageSize();
         int offset = (req.pageNumber() - 1) * req.pageSize();
         String search = req.search();
+        boolean hasSearch = search != null && !search.isBlank();
 
-        Flux<Item> itemsFlux = itemRepository.search(search, limit, offset);
-
-        Mono<Long> totalMono = (search == null || search.isBlank())
-                ? itemRepository.count()
-                : itemRepository.countSearch(search);
+        Flux<Item> itemsFlux = resolveItemsFlux(req.sort(), hasSearch, search, limit, offset);
+        Mono<Long> totalMono = hasSearch
+                ? itemRepository.countSearch(search)
+                : itemRepository.count();
 
         Mono<ItemListResponse> itemListResponseMono = itemsFlux.collectList()
                 .zipWith(totalMono)
@@ -90,6 +91,22 @@ public class ItemServiceImpl implements ItemService {
         Mono<ItemCartListResponse> itemCartListResponseMono = changeItemCount(itemId, action).then(buildCartResponse());
         log.info("Count of Item with ID {} has been changed from cart page.", itemId);
         return itemCartListResponseMono;
+    }
+
+    private Flux<Item> resolveItemsFlux(Sort sort, boolean hasSearch, String search, int limit, int offset) {
+        if (hasSearch) {
+            return switch (sort) {
+                case ALPHA -> itemRepository.searchOrderByTitle(search, limit, offset);
+                case PRICE -> itemRepository.searchOrderByPrice(search, limit, offset);
+                default    -> itemRepository.searchOrderById(search, limit, offset);
+            };
+        } else {
+            return switch (sort) {
+                case ALPHA -> itemRepository.findAllOrderByTitle(limit, offset);
+                case PRICE -> itemRepository.findAllOrderByPrice(limit, offset);
+                default    -> itemRepository.findAllOrderById(limit, offset);
+            };
+        }
     }
 
     private List<List<ItemDto>> splitIntoChunksOfThree(List<ItemDto> itemDtoList) {

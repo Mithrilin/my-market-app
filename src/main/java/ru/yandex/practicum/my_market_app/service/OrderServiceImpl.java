@@ -3,6 +3,7 @@ package ru.yandex.practicum.my_market_app.service;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.my_market_app.dto.OrderDto;
@@ -48,6 +49,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional
     public Mono<OrderDto> createOrder() {
         Mono<OrderDto> orderDtoMono = itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
                 .collectList()

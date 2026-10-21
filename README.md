@@ -21,15 +21,6 @@
 - **Testcontainers** — интеграционные тесты с реальным PostgreSQL
 - **Docker** — контейнеризация
 
-## Ключевые особенности реактивной реализации
-
-- **Неблокирующий ввод-вывод** — все операции возвращают `Mono<T>` или `Flux<T>`
-- **R2DBC вместо JDBC** — реактивный доступ к PostgreSQL без блокировок потоков
-- **Связи между сущностями собираются в сервисе** — R2DBC не поддерживает `@OneToMany`/`@ManyToOne`
-- **Thymeleaf в реактивном режиме** — рендеринг возвращает `Mono<Rendering>` вместо `Model`
-- **Редиректы с параметрами строятся вручную** — в WebFlux `Rendering.redirectTo(...).modelAttribute(...)` не добавляет параметры в URL
-- **Централизованный `ErrorHandler`** — возвращает `Mono<Rendering>` с корректными HTTP-статусами
-
 ## Функциональные возможности
 
 ### Управление товарами
@@ -172,70 +163,6 @@ mvn clean
 mvn compile
 ```
 
-## Тестирование
-
-### Структура тестов
-
-| Тест | Тип | Что проверяет |
-|---|---|---|
-| `ItemRepositoryTest` | Интеграционный (`@DataR2dbcTest` + Testcontainers) | Реальные SQL-запросы к PostgreSQL |
-| `ItemServiceImplTest` | Юнит (Mockito + `StepVerifier`) | Логика сервиса товаров |
-| `OrderServiceImplTest` | Юнит (Mockito + `StepVerifier`) | Логика сервиса заказов |
-| `ItemControllerTest` | WebFlux (`@WebFluxTest` + `WebTestClient`) | HTTP-слой: товары |
-| `ItemCartControllerTest` | WebFlux (`@WebFluxTest` + `WebTestClient`) | HTTP-слой: корзина |
-| `OrderControllerTest` | WebFlux (`@WebFluxTest` + `WebTestClient`) | HTTP-слой: заказы |
-
-### Что покрывают тесты
-
-**`ItemRepositoryTest`** — интеграционные тесты поверх реального PostgreSQL через Testcontainers:
-- поиск товаров по названию и описанию (регистронезависимый)
-- поиск по частичному совпадению в title и description
-- пустой результат при отсутствии совпадений
-- выборка товаров с `count >= 1` (товары в корзине)
-- корректная работа `LIMIT/OFFSET` при пагинации
-
-**`ItemServiceImplTest`** — юнит-тесты сервиса товаров с моками репозитория и маппера:
-- получение товара по ID (успех и `NotFoundException`)
-- получение списка товаров с пагинацией и поиском
-- увеличение/уменьшение количества товара
-- запрет уменьшения ниже нуля (`BadRequestException`)
-- запрет действия `DELETE` на странице товара
-- получение корзины с корректным подсчётом суммы
-- изменение количества товара из корзины
-
-**`OrderServiceImplTest`** — юнит-тесты сервиса заказов:
-- получение списка и конкретного заказа
-- `NotFoundException` при отсутствии заказа
-- создание заказа с корректным подсчётом суммы
-- корректный `orderId` во всех `OrderItem` после сохранения
-- обнуление `count` у товаров после оформления заказа
-- работа при пустой корзине
-
-**`ItemControllerTest`**, **`ItemCartControllerTest`**, **`OrderControllerTest`** — тесты HTTP-слоя через `WebTestClient`:
-- корректные `200 OK` при успешных операциях
-- `303 See Other` при редиректах с сохранением параметров (`search`, `sort`, `pageNumber`, `pageSize`)
-- `400 Bad Request` при отсутствующих/невалидных параметрах
-- проверка, что `Location` в редиректах содержит нужные query-параметры
-
-### Ключевые инструменты
-
-- **`StepVerifier`** — для проверки реактивных потоков (`Mono`/`Flux`) вместо `.block()`:
-
-  ```java
-  StepVerifier.create(itemService.getItemById(1L))
-          .assertNext(dto -> assertThat(dto.id()).isEqualTo(1L))
-          .verifyComplete();
-
-- **`WebTestClient`** — реактивная альтернатива `MockMvc`:
-
-  ```java
-  webTestClient.get().uri("/items/1")
-          .exchange()
-          .expectStatus().isOk();
-
-- **`@MockitoBean`** — современная замена устаревшего `@MockBean` (Spring Boot 3.4+):
-- **Testcontainers** — поднимает реальный PostgreSQL в Docker для интеграционных тестов:
-
 ## Структура базы данных
 
 ### Таблица `items` (Товары)
@@ -247,7 +174,7 @@ mvn compile
 | `title` | VARCHAR | NOT NULL | Название товара |
 | `description` | VARCHAR | - | Описание товара |
 | `img_path` | VARCHAR | - | Путь к изображению товара |
-| `price` | BIGINT | NOT NULL | Цена товара (в копейках) |
+| `price` | BIGINT | NOT NULL | Цена товара |
 | `count` | INTEGER | DEFAULT 0 | Количество товара в корзине |
 
 ### Таблица `orders` (Заказы)
@@ -256,13 +183,15 @@ mvn compile
 | Колонка | Тип | Ограничения | Описание |
 |---------|-----|-------------|----------|
 | `id` | BIGINT | PRIMARY KEY, AUTO_INCREMENT | Уникальный идентификатор заказа |
-| `total_sum` | BIGINT | NOT NULL | Общая сумма заказа (в копейках) |
+| `total_sum` | BIGINT | NOT NULL | Общая сумма заказа |
 
 ### Таблица `order_items` (Товары в заказе)
-Связующая таблица для хранения товаров, входящих в заказ (отношение многие-ко-многим).
+Хранит информацию о товарах в момент заказа.
 
-| Колонка | Тип | Ограничения | Описание |
-|---------|-----|-------------|----------|
-| `order_id` | BIGINT | FOREIGN KEY → orders(id) | Идентификатор заказа |
-| `item_id` | BIGINT | FOREIGN KEY → items(id) | Идентификатор товара |
-| `count` | INTEGER | NOT NULL | Количество единиц товара в заказе |
+| Колонка | Тип | Ограничения | Описание              |
+|---------|-----|-------------|-----------------------|
+| `id` | BIGINT | PRIMARY KEY, AUTO_INCREMENT | Уникальный идентификатор |
+| `order_id` | BIGINT | FOREIGN KEY → orders(id) | Идентификатор заказа  |
+| `title` | VARCHAR | NOT NULL | Название товара       |
+| `price` | BIGINT | NOT NULL | Цена товара   |
+| `count` | INTEGER | DEFAULT 0 | Количество товара в заказе |
