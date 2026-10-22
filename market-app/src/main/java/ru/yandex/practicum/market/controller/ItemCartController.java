@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.reactive.result.view.Rendering;
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.market.dto.ItemCartListResponse;
+import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.enums.Action;
 import ru.yandex.practicum.market.service.ItemService;
 
@@ -40,10 +40,12 @@ public class ItemCartController {
                 .map(this::toCartView);
     }
 
-    private Rendering toCartView(ItemCartListResponse r) {
+    private Rendering toCartView(CartPageResponse r) {
         return Rendering.view("cart")
                 .modelAttribute("items", r.itemDtoList())
                 .modelAttribute("total", r.total())
+                .modelAttribute("paymentAvailable", r.paymentAvailable())
+                .modelAttribute("paymentMessage", r.paymentMessage())
                 .build();
     }
 }

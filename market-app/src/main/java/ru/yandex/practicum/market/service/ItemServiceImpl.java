@@ -2,10 +2,13 @@ package ru.yandex.practicum.market.service;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.market.dto.ItemCartListResponse;
+import ru.yandex.practicum.market.client.PaymentClient;
+import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListResponse;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
@@ -34,7 +37,10 @@ public class ItemServiceImpl implements ItemService {
 
     private final ItemMapper itemMapper;
 
+    private final PaymentClient paymentClient;
+
     @Override
+    @Cacheable(cacheNames = "item", key = "#id")
     public Mono<ItemDto> getItemById(Long id) {
         Mono<ItemDto> itemDtoMono = findItemById(id).map(itemMapper::toItemDto);
         log.info("Item with ID = {} returned.", id);
@@ -42,6 +48,8 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
+    @Cacheable(cacheNames = "itemList",
+            key = "#req.sort() + ':' + #req.search() + ':' + #req.pageNumber() + ':' + #req.pageSize()")
     public Mono<ItemListResponse> getItemList(ItemListSearchRequest req) {
         int limit = req.pageSize();
         int offset = (req.pageNumber() - 1) * req.pageSize();
@@ -70,6 +78,7 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"item", "itemList", "cartItems"}, allEntries = true)
     public Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action) {
         if (action == Action.DELETE) {
             return Mono.error(new BadRequestException("Action cannot be equal DELETE."));
@@ -80,17 +89,19 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    public Mono<ItemCartListResponse> getItemCartList() {
-        Mono<ItemCartListResponse> itemCartListResponseMono = buildCartResponse();
-        log.info("ItemCartList has been returned");
-        return itemCartListResponseMono;
+    @Cacheable(cacheNames = "cartItems", key = "'all'")
+    public Mono<CartPageResponse> getItemCartList() {
+        Mono<CartPageResponse> cartPageResponseMono = buildCartResponse();
+        log.info("Cart page has been returned.");
+        return cartPageResponseMono;
     }
 
     @Override
-    public Mono<ItemCartListResponse> changeItemCountFromCartPage(Long itemId, Action action) {
-        Mono<ItemCartListResponse> itemCartListResponseMono = changeItemCount(itemId, action).then(buildCartResponse());
+    @CacheEvict(cacheNames = {"item", "itemList", "cartItems"}, allEntries = true)
+    public Mono<CartPageResponse> changeItemCountFromCartPage(Long itemId, Action action) {
+        Mono<CartPageResponse> cartPageResponseMono = changeItemCount(itemId, action).then(buildCartResponse());
         log.info("Count of Item with ID {} has been changed from cart page.", itemId);
-        return itemCartListResponseMono;
+        return cartPageResponseMono;
     }
 
     private Flux<Item> resolveItemsFlux(Sort sort, boolean hasSearch, String search, int limit, int offset) {
@@ -147,15 +158,36 @@ public class ItemServiceImpl implements ItemService {
                         new NotFoundException(String.format("Item with ID = %d not found", itemId))));
     }
 
-    private Mono<ItemCartListResponse> buildCartResponse() {
+    private Mono<CartPageResponse> buildCartResponse() {
         return itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
                 .collectList()
-                .map(items -> {
+                .flatMap(items -> {
                     long total = items.stream()
                             .mapToLong(i -> i.getPrice() * i.getCount())
                             .sum();
                     List<ItemDto> dtos = itemMapper.toItemDtoList(items);
-                    return new ItemCartListResponse(dtos, total);
+                    return resolvePaymentAvailability(total)
+                            .map(payment -> new CartPageResponse(
+                                    dtos, total, payment.available(), payment.message()));
                 });
+    }
+
+    private Mono<PaymentAvailability> resolvePaymentAvailability(long total) {
+        return paymentClient.getBalance()
+                .map(balance -> {
+                    if (balance.balance() == null || balance.balance() < total) {
+                        return new PaymentAvailability(false,
+                                "Недостаточно средств на счёте для оформления заказа.");
+                    }
+                    return new PaymentAvailability(true, null);
+                })
+                .onErrorResume(e -> {
+                    log.warn("Payment service is unavailable: {}", e.getMessage());
+                    return Mono.just(new PaymentAvailability(false,
+                            "Сервис платежей недоступен. Оформление заказа временно невозможно."));
+                });
+    }
+
+    private record PaymentAvailability(boolean available, String message) {
     }
 }

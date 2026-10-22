@@ -5,10 +5,14 @@ import lombok.Builder;
 import java.util.List;
 
 @Builder
-public record ItemCartListResponse(
+public record CartPageResponse(
 
         List<ItemDto> itemDtoList,
 
-        Long total
+        Long total,
+
+        boolean paymentAvailable,
+
+        String paymentMessage
 ) {
 }

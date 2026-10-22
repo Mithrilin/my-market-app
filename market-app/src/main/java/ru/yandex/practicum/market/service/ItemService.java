@@ -1,7 +1,7 @@
 package ru.yandex.practicum.market.service;
 
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.market.dto.ItemCartListResponse;
+import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListResponse;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
@@ -15,7 +15,7 @@ public interface ItemService {
 
     Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action);
 
-    Mono<ItemCartListResponse> getItemCartList();
+    Mono<CartPageResponse> getItemCartList();
 
-    Mono<ItemCartListResponse> changeItemCountFromCartPage(Long itemId, Action action);
+    Mono<CartPageResponse> changeItemCountFromCartPage(Long itemId, Action action);
 }
