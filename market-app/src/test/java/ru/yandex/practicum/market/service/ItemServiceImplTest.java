@@ -10,6 +10,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import ru.yandex.practicum.market.client.PaymentClient;
+import ru.yandex.practicum.market.client.dto.BalanceResponse;
 import ru.yandex.practicum.market.util.TestDataFactory;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
@@ -40,6 +42,9 @@ class ItemServiceImplTest {
 
     @Mock
     private ItemMapper itemMapper;
+
+    @Mock
+    private PaymentClient paymentClient;
 
     @InjectMocks
     private ItemServiceImpl itemService;
@@ -92,7 +97,7 @@ class ItemServiceImplTest {
                 TestDataFactory.createTestItemDto(2L, "Item 2", 200L, 2),
                 TestDataFactory.createTestItemDto(3L, "Item 3", 300L, 3));
 
-        ItemListSearchRequest req = TestDataFactory.createDefaultSearchRequest(); // sort=NO, page=1, size=5
+        ItemListSearchRequest req = TestDataFactory.createDefaultSearchRequest();
 
         when(itemRepository.findAllOrderById(5, 0)).thenReturn(Flux.fromIterable(items));
         when(itemRepository.count()).thenReturn(Mono.just(3L));
@@ -302,8 +307,8 @@ class ItemServiceImplTest {
     }
 
     @Test
-    @DisplayName("Successful getting cart items")
-    void getItemCartList_shouldReturnCartItems() {
+    @DisplayName("Successful getting cart items with available payment")
+    void getItemCartList_shouldReturnCartItemsWithAvailablePayment() {
         List<Item> itemsWithCount = List.of(
                 TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2),
                 TestDataFactory.createTestItem(2L, "Item 2", "Desc 2", 200L, 3));
@@ -314,15 +319,58 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.fromIterable(itemsWithCount));
         when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
                     assertThat(r.itemDtoList()).hasSize(2);
                     assertThat(r.total()).isEqualTo(800L);
+                    assertThat(r.paymentAvailable()).isTrue();
+                    assertThat(r.paymentMessage()).isNull();
                 })
                 .verifyComplete();
+    }
 
-        verify(itemRepository).findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART);
+    @Test
+    @DisplayName("Cart page: insufficient funds on balance")
+    void getItemCartList_shouldMarkPaymentUnavailableWhenInsufficientFunds() {
+        List<Item> itemsWithCount = List.of(
+                TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2));
+        List<ItemDto> dtoList = List.of(
+                TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2));
+
+        when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
+                .thenReturn(Flux.fromIterable(itemsWithCount));
+        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(50L)));
+
+        StepVerifier.create(itemService.getItemCartList())
+                .assertNext(r -> {
+                    assertThat(r.paymentAvailable()).isFalse();
+                    assertThat(r.paymentMessage()).isNotNull();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Cart page: payment service unavailable")
+    void getItemCartList_shouldMarkPaymentUnavailableWhenServiceDown() {
+        List<Item> itemsWithCount = List.of(
+                TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2));
+        List<ItemDto> dtoList = List.of(
+                TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2));
+
+        when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
+                .thenReturn(Flux.fromIterable(itemsWithCount));
+        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
+        when(paymentClient.getBalance()).thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+        StepVerifier.create(itemService.getItemCartList())
+                .assertNext(r -> {
+                    assertThat(r.paymentAvailable()).isFalse();
+                    assertThat(r.paymentMessage()).contains("недоступен");
+                })
+                .verifyComplete();
     }
 
     @Test
@@ -331,11 +379,13 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.empty());
         when(itemMapper.toItemDtoList(List.of())).thenReturn(List.of());
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
                     assertThat(r.itemDtoList()).isEmpty();
                     assertThat(r.total()).isZero();
+                    assertThat(r.paymentAvailable()).isTrue();
                 })
                 .verifyComplete();
     }
@@ -353,6 +403,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.fromIterable(cartItems));
         when(itemMapper.toItemDtoList(cartItems)).thenReturn(dtoList);
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.PLUS))
                 .assertNext(r -> {
@@ -372,6 +423,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.empty());
         when(itemMapper.toItemDtoList(List.of())).thenReturn(List.of());
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.DELETE))
                 .assertNext(r -> {
