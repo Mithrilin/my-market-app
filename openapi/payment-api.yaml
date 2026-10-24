@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: Payment Service API
+  description: RESTful-сервис платежей для My Market App
+  version: 1.0.0
+
+paths:
+  /api/payments/balance:
+    get:
+      tags:
+        - payments
+      operationId: getBalance
+      summary: Получить текущий баланс
+      responses:
+        '200':
+          description: Текущий баланс
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+        '5XX':
+          description: Ошибка сервиса платежей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
+
+  /api/payments:
+    post:
+      tags:
+        - payments
+      operationId: pay
+      summary: Списать сумму со счёта
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Платёж успешно выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: Недостаточно средств или невалидный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
+        '5XX':
+          description: Ошибка сервиса платежей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
+
+components:
+  schemas:
+    PaymentRequest:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Сумма к списанию
+
+    PaymentResponse:
+      type: object
+      properties:
+        amount:
+          type: integer
+          format: int64
+        newBalance:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+
+    BalanceResponse:
+      type: object
+      properties:
+        balance:
+          type: integer
+          format: int64
+
+    PaymentErrorResponse:
+      type: object
+      properties:
+        errorMessage:
+          type: string
+        balance:
+          type: integer
+          format: int64
+          nullable: true
+
+    PaymentStatus:
+      type: string
+      enum:
+        - SUCCESS
+        - FAILED
