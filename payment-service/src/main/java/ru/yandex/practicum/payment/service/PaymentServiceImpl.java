@@ -44,9 +44,8 @@ public class PaymentServiceImpl implements PaymentService {
             }
             long newBalance = current - amount;
             if (balance.compareAndSet(current, newBalance)) {
-                log.info("Payment for order {} succeeded: {} deducted, new balance = {}",
-                        request.orderId(), amount, newBalance);
-                return new PaymentResponse(request.orderId(), amount, newBalance, PaymentStatus.SUCCESS);
+                log.info("Payment succeeded: {} deducted, new balance = {}", amount, newBalance);
+                return new PaymentResponse(amount, newBalance, PaymentStatus.SUCCESS);
             }
         }
     }

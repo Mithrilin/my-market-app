@@ -85,14 +85,15 @@ my-market-app/               (parent pom, packaging=pom)
 #### Кеширование в Redis (`market-app`)
 - **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id`
 - **Список товаров** (`itemList`): кешируется `ItemListResponse` по ключу `sort:search:pageNumber:pageSize`
-- **Корзина** (`cartItems`): кешируется `CartPageResponse` по ключу `'all'`
 - **TTL** — 3 минуты (`CacheConfig.CACHE_TTL`)
 - **Инвалидация** (`@CacheEvict(allEntries = true)`) при:
   - изменении количества товара со страницы товара / списка (`changeItemCountFromItemPage`)
   - изменении количества в корзине (`changeItemCountFromCartPage`)
-  - оформлении заказа (`createOrder`)
+  - сохранении нового заказа (`OrderPersistenceService.saveNewOrder`)
 - Сериализация — `GenericJackson2JsonRedisSerializer`
 - `null`-значения не кешируются (`disableCachingNullValues`)
+- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service, 
+поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
 
 ### Сервис платежей (`payment-service`)
 
@@ -135,7 +136,7 @@ my-market-app/               (parent pom, packaging=pom)
 | Метод | Endpoint | Описание | Тело / ответ |
 |-------|----------|----------|--------------|
 | GET | `/api/payments/balance` | Баланс | → `{"balance": 10000}` |
-| POST | `/api/payments` | Списание | `{"orderId": 1, "amount": 850}` → `{"orderId":1,"amount":850,"newBalance":9150,"status":"SUCCESS"}`; при недостатке — `400` с `{"errorMessage":"...","balance":null}` |
+| POST | `/api/payments` | Списание | `{"amount": 850}` → `{"amount":850,"newBalance":9150,"status":"SUCCESS"}`; при недостатке — `400` с `{"errorMessage":"...","balance":null}` |
 
 ---
 
@@ -211,12 +212,11 @@ mvn -pl market-app spring-boot:run
 ## Особенности реализации
 
 ### Оплата
-- `OrderServiceImpl.createOrder()`:
+- `OrderServiceImpl.createOrder()` (без `@Transactional`):
   1. читает корзину, считает сумму;
-  2. **сохраняет `Order`** (чтобы получить `id`);
-  3. вызывает `payment-service` (`POST /api/payments` с `{orderId, amount}`);
-  4. при успехе — сохраняет `order_items`, обнуляет корзину;
-  5. при отказе — `BadRequestException` → `@Transactional` откатывает сохранённый `Order`.
+  2. **вызывает `payment-service`** (`POST /api/payments` с `{amount}`) — вне транзакции;
+  3. при успехе — передаёт управление `OrderPersistenceService.saveNewOrder(...)`, где в **короткой** `@Transactional` сохраняются `Order`, `order_items` и обнуляется корзина;
+  4. при отказе (`4xx` от payment-service) — `BadRequestException` (HTTP `400`), при недоступности (`5xx`/сеть) — `PaymentServiceException` (HTTP `503`). В обоих случаях в БД ничего не пишется.
 - Если корзина пуста, платёж **не вызывается** (заказ с `totalSum=0` создаётся, как и раньше — зафиксировано тестом).
 - Проверка баланса на странице корзины (`GET /cart/items`) — через `paymentClient.getBalance()`; при недоступности сервиса или недостатке средств — сообщение и disabled-кнопка.
 

@@ -1,18 +1,9 @@
 package ru.yandex.practicum.market.dto;
 
-import lombok.Builder;
-
-import java.util.List;
-
-@Builder
 public record CartPageResponse(
 
-        List<ItemDto> itemDtoList,
+        CartDto cart,
 
-        Long total,
-
-        boolean paymentAvailable,
-
-        String paymentMessage
+        PaymentStatusDto payment
 ) {
 }

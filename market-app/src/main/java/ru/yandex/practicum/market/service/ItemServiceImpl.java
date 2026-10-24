@@ -8,11 +8,13 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.client.PaymentClient;
+import ru.yandex.practicum.market.dto.CartDto;
 import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListResponse;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
 import ru.yandex.practicum.market.dto.Paging;
+import ru.yandex.practicum.market.dto.PaymentStatusDto;
 import ru.yandex.practicum.market.enums.Action;
 import ru.yandex.practicum.market.enums.Sort;
 import ru.yandex.practicum.market.exception.BadRequestException;
@@ -78,7 +80,7 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    @CacheEvict(cacheNames = {"item", "itemList", "cartItems"}, allEntries = true)
+    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
     public Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action) {
         if (action == Action.DELETE) {
             return Mono.error(new BadRequestException("Action cannot be equal DELETE."));
@@ -89,17 +91,19 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    @Cacheable(cacheNames = "cartItems", key = "'all'")
     public Mono<CartPageResponse> getItemCartList() {
-        Mono<CartPageResponse> cartPageResponseMono = buildCartResponse();
+        Mono<CartPageResponse> cartPageResponseMono = buildCartResponse()
+                .flatMap(cart -> resolvePaymentAvailability(cart.total())
+                        .map(payment -> new CartPageResponse(cart, payment)));
         log.info("Cart page has been returned.");
         return cartPageResponseMono;
     }
 
     @Override
-    @CacheEvict(cacheNames = {"item", "itemList", "cartItems"}, allEntries = true)
+    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
     public Mono<CartPageResponse> changeItemCountFromCartPage(Long itemId, Action action) {
-        Mono<CartPageResponse> cartPageResponseMono = changeItemCount(itemId, action).then(buildCartResponse());
+        Mono<CartPageResponse> cartPageResponseMono =
+                changeItemCount(itemId, action).then(getItemCartList());
         log.info("Count of Item with ID {} has been changed from cart page.", itemId);
         return cartPageResponseMono;
     }
@@ -158,36 +162,31 @@ public class ItemServiceImpl implements ItemService {
                         new NotFoundException(String.format("Item with ID = %d not found", itemId))));
     }
 
-    private Mono<CartPageResponse> buildCartResponse() {
+    private Mono<CartDto> buildCartResponse() {
         return itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
                 .collectList()
-                .flatMap(items -> {
+                .map(items -> {
                     long total = items.stream()
                             .mapToLong(i -> i.getPrice() * i.getCount())
                             .sum();
                     List<ItemDto> dtos = itemMapper.toItemDtoList(items);
-                    return resolvePaymentAvailability(total)
-                            .map(payment -> new CartPageResponse(
-                                    dtos, total, payment.available(), payment.message()));
+                    return new CartDto(dtos, total);
                 });
     }
 
-    private Mono<PaymentAvailability> resolvePaymentAvailability(long total) {
+    private Mono<PaymentStatusDto> resolvePaymentAvailability(long total) {
         return paymentClient.getBalance()
                 .map(balance -> {
                     if (balance.balance() == null || balance.balance() < total) {
-                        return new PaymentAvailability(false,
+                        return new PaymentStatusDto(false,
                                 "Недостаточно средств на счёте для оформления заказа.");
                     }
-                    return new PaymentAvailability(true, null);
+                    return new PaymentStatusDto(true, null);
                 })
                 .onErrorResume(e -> {
                     log.warn("Payment service is unavailable: {}", e.getMessage());
-                    return Mono.just(new PaymentAvailability(false,
+                    return Mono.just(new PaymentStatusDto(false,
                             "Сервис платежей недоступен. Оформление заказа временно невозможно."));
                 });
-    }
-
-    private record PaymentAvailability(boolean available, String message) {
     }
 }

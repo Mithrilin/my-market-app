@@ -16,10 +16,10 @@ import ru.yandex.practicum.market.client.dto.PaymentResponse;
 import ru.yandex.practicum.market.dto.OrderDto;
 import ru.yandex.practicum.market.exception.BadRequestException;
 import ru.yandex.practicum.market.exception.NotFoundException;
+import ru.yandex.practicum.market.exception.PaymentServiceException;
 import ru.yandex.practicum.market.mapper.OrderMapper;
 import ru.yandex.practicum.market.model.Item;
 import ru.yandex.practicum.market.model.Order;
-import ru.yandex.practicum.market.model.OrderItem;
 import ru.yandex.practicum.market.repository.ItemRepository;
 import ru.yandex.practicum.market.repository.OrderItemRepository;
 import ru.yandex.practicum.market.repository.OrderRepository;
@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -53,6 +54,9 @@ class OrderServiceImplTest {
 
     @Mock
     private PaymentClient paymentClient;
+
+    @Mock
+    private OrderPersistenceService orderPersistenceService;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -139,24 +143,19 @@ class OrderServiceImplTest {
                 TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2),
                 TestDataFactory.createTestItem(2L, "Item 2", "Desc 2", 200L, 3));
 
-        Order newOrder = TestDataFactory.createTestOrder(2L, 800L);
+        Order savedOrder = TestDataFactory.createTestOrder(2L, 800L);
         OrderDto newOrderDto = OrderDto.builder()
                 .id(2L)
                 .items(Collections.emptyList())
                 .totalSum(800L)
                 .build();
 
-        List<OrderItem> savedOrderItems = List.of(
-                TestDataFactory.createTestOrderItem(1L, 2L, "Item 1", 100L, 2),
-                TestDataFactory.createTestOrderItem(2L, 2L, "Item 2", 200L, 3));
-
         when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.fromIterable(itemsInCart));
-        when(orderRepository.save(any(Order.class))).thenReturn(Mono.just(newOrder));
         when(paymentClient.pay(any(PaymentRequest.class)))
-                .thenReturn(Mono.just(new PaymentResponse(2L, 800L, 9200L, "SUCCESS")));
-        when(orderItemRepository.saveAll(anyList())).thenReturn(Flux.fromIterable(savedOrderItems));
-        when(itemRepository.saveAll(anyList())).thenReturn(Flux.fromIterable(itemsInCart));
-        when(orderMapper.toOrderDto(newOrder)).thenReturn(newOrderDto);
+                .thenReturn(Mono.just(new PaymentResponse(800L, 9200L, "SUCCESS")));
+        when(orderPersistenceService.saveNewOrder(anyList(), eq(800L)))
+                .thenReturn(Mono.just(savedOrder));
+        when(orderMapper.toOrderDto(savedOrder)).thenReturn(newOrderDto);
 
         StepVerifier.create(orderService.createOrder())
                 .assertNext(dto -> {
@@ -166,22 +165,17 @@ class OrderServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(paymentClient).pay(argThat(req -> req.orderId() != null && req.orderId().equals(2L)));
-        verify(orderRepository).save(any(Order.class));
-        verify(orderItemRepository).saveAll(anyList());
-        verify(itemRepository).saveAll(anyList());
+        verify(paymentClient).pay(argThat(req -> req.amount() != null && req.amount().equals(800L)));
+        verify(orderPersistenceService).saveNewOrder(anyList(), eq(800L));
     }
 
     @Test
-    @DisplayName("Order creation fails when payment is declined")
+    @DisplayName("Order creation fails when payment is declined (4xx)")
     void createOrder_shouldFailWhenPaymentDeclined() {
         List<Item> itemsInCart = List.of(
                 TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2));
 
-        Order savedOrder = TestDataFactory.createTestOrder(10L, 200L);
-
         when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.fromIterable(itemsInCart));
-        when(orderRepository.save(any(Order.class))).thenReturn(Mono.just(savedOrder));
         when(paymentClient.pay(any(PaymentRequest.class)))
                 .thenReturn(Mono.error(new BadRequestException("Insufficient funds")));
 
@@ -192,10 +186,29 @@ class OrderServiceImplTest {
                 })
                 .verify();
 
-        verify(orderRepository).save(any(Order.class));
-        verify(paymentClient).pay(argThat(req -> req.orderId() != null && req.orderId().equals(10L)));
-        verify(orderItemRepository, never()).saveAll(anyList());
-        verify(itemRepository, never()).saveAll(anyList());
+        verify(paymentClient).pay(any(PaymentRequest.class));
+        verify(orderPersistenceService, never()).saveNewOrder(anyList(), any(Long.class));
+    }
+
+    @Test
+    @DisplayName("Order creation fails with PaymentServiceException when payment-service is down")
+    void createOrder_shouldFailWithServiceUnavailableWhenPaymentServiceDown() {
+        List<Item> itemsInCart = List.of(
+                TestDataFactory.createTestItem(1L, "Item 1", "Desc 1", 100L, 2));
+
+        when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.fromIterable(itemsInCart));
+        when(paymentClient.pay(any(PaymentRequest.class)))
+                .thenReturn(Mono.error(new PaymentServiceException("Payment service is unavailable")));
+
+        StepVerifier.create(orderService.createOrder())
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(PaymentServiceException.class);
+                    assertThat(e.getMessage()).contains("Payment service is unavailable");
+                })
+                .verify();
+
+        verify(paymentClient).pay(any(PaymentRequest.class));
+        verify(orderPersistenceService, never()).saveNewOrder(anyList(), any(Long.class));
     }
 
     @Test
@@ -206,7 +219,7 @@ class OrderServiceImplTest {
                 TestDataFactory.createTestItem(2L, "Item 2", "Desc 2", 150L, 3));
         long expectedTotal = 100L * 2 + 150L * 3;
 
-        Order newOrder = TestDataFactory.createTestOrder(2L, expectedTotal);
+        Order savedOrder = TestDataFactory.createTestOrder(2L, expectedTotal);
         OrderDto newOrderDto = OrderDto.builder()
                 .id(2L)
                 .items(Collections.emptyList())
@@ -214,23 +227,19 @@ class OrderServiceImplTest {
                 .build();
 
         when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.fromIterable(itemsInCart));
-        when(orderRepository.save(any(Order.class))).thenReturn(Mono.just(newOrder));
         when(paymentClient.pay(any(PaymentRequest.class)))
-                .thenReturn(Mono.just(new PaymentResponse(2L, expectedTotal, 0L, "SUCCESS")));
-        when(orderItemRepository.saveAll(anyList())).thenReturn(Flux.empty());
-        when(itemRepository.saveAll(anyList())).thenReturn(Flux.fromIterable(itemsInCart));
-        when(orderMapper.toOrderDto(newOrder)).thenReturn(newOrderDto);
+                .thenReturn(Mono.just(new PaymentResponse(expectedTotal, 0L, "SUCCESS")));
+        when(orderPersistenceService.saveNewOrder(anyList(), eq(expectedTotal)))
+                .thenReturn(Mono.just(savedOrder));
+        when(orderMapper.toOrderDto(savedOrder)).thenReturn(newOrderDto);
 
         StepVerifier.create(orderService.createOrder())
                 .assertNext(dto -> assertThat(dto.totalSum()).isEqualTo(expectedTotal))
                 .verifyComplete();
 
-        verify(orderRepository).save(argThat(o -> o.getTotalSum() != null
-                && o.getTotalSum().equals(expectedTotal)));
-        verify(paymentClient).pay(argThat(req -> req.orderId() != null
-                && req.orderId().equals(2L)
-                && req.amount() != null
+        verify(paymentClient).pay(argThat(req -> req.amount() != null
                 && req.amount().equals(expectedTotal)));
+        verify(orderPersistenceService).saveNewOrder(anyList(), eq(expectedTotal));
     }
 
     @Test
@@ -244,7 +253,8 @@ class OrderServiceImplTest {
                 .build();
 
         when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.empty());
-        when(orderRepository.save(any(Order.class))).thenReturn(Mono.just(emptyOrder));
+        when(orderPersistenceService.saveNewOrder(anyList(), eq(0L)))
+                .thenReturn(Mono.just(emptyOrder));
         when(orderMapper.toOrderDto(emptyOrder)).thenReturn(emptyOrderDto);
 
         StepVerifier.create(orderService.createOrder())
@@ -255,8 +265,6 @@ class OrderServiceImplTest {
                 .verifyComplete();
 
         verify(paymentClient, never()).pay(any(PaymentRequest.class));
-        verify(orderRepository).save(argThat(o -> o.getTotalSum() != null && o.getTotalSum() == 0L));
-        verify(orderItemRepository, never()).saveAll(anyList());
-        verify(itemRepository, never()).saveAll(anyList());
+        verify(orderPersistenceService).saveNewOrder(anyList(), eq(0L));
     }
 }

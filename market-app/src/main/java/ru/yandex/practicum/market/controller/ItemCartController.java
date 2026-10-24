@@ -42,10 +42,10 @@ public class ItemCartController {
 
     private Rendering toCartView(CartPageResponse r) {
         return Rendering.view("cart")
-                .modelAttribute("items", r.itemDtoList())
-                .modelAttribute("total", r.total())
-                .modelAttribute("paymentAvailable", r.paymentAvailable())
-                .modelAttribute("paymentMessage", r.paymentMessage())
+                .modelAttribute("items", r.cart().itemDtoList())
+                .modelAttribute("total", r.cart().total())
+                .modelAttribute("paymentAvailable", r.payment().available())
+                .modelAttribute("paymentMessage", r.payment().message())
                 .build();
     }
 }

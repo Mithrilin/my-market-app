@@ -8,8 +8,10 @@ import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
+import ru.yandex.practicum.market.dto.CartDto;
 import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
+import ru.yandex.practicum.market.dto.PaymentStatusDto;
 import ru.yandex.practicum.market.enums.Action;
 import ru.yandex.practicum.market.service.ItemService;
 import ru.yandex.practicum.market.util.TestDataFactory;
@@ -35,7 +37,9 @@ class ItemCartControllerTest {
                 TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2),
                 TestDataFactory.createTestItemDto(2L, "Item 2", 200L, 3)
         );
-        testCartResponse = new CartPageResponse(items, 700L, true, null);
+        testCartResponse = new CartPageResponse(
+                new CartDto(items, 700L),
+                new PaymentStatusDto(true, null));
     }
 
     @Test

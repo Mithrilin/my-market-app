@@ -38,6 +38,16 @@ public class ErrorHandler {
                 .build());
     }
 
+    @ExceptionHandler(PaymentServiceException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public Mono<Rendering> handlePaymentServiceException(PaymentServiceException e) {
+        log.error(e.getLocalizedMessage());
+        return Mono.just(Rendering.view("error")
+                .modelAttribute("errorMessage", e.getMessage())
+                .modelAttribute("errorStatus", 503)
+                .build());
+    }
+
     @ExceptionHandler(WebExchangeBindException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<Rendering> handleValidationException(WebExchangeBindException e) {

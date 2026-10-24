@@ -323,10 +323,10 @@ class ItemServiceImplTest {
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
-                    assertThat(r.itemDtoList()).hasSize(2);
-                    assertThat(r.total()).isEqualTo(800L);
-                    assertThat(r.paymentAvailable()).isTrue();
-                    assertThat(r.paymentMessage()).isNull();
+                    assertThat(r.cart().itemDtoList()).hasSize(2);
+                    assertThat(r.cart().total()).isEqualTo(800L);
+                    assertThat(r.payment().available()).isTrue();
+                    assertThat(r.payment().message()).isNull();
                 })
                 .verifyComplete();
     }
@@ -346,8 +346,8 @@ class ItemServiceImplTest {
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
-                    assertThat(r.paymentAvailable()).isFalse();
-                    assertThat(r.paymentMessage()).isNotNull();
+                    assertThat(r.payment().available()).isFalse();
+                    assertThat(r.payment().message()).isNotNull();
                 })
                 .verifyComplete();
     }
@@ -367,8 +367,8 @@ class ItemServiceImplTest {
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
-                    assertThat(r.paymentAvailable()).isFalse();
-                    assertThat(r.paymentMessage()).contains("недоступен");
+                    assertThat(r.payment().available()).isFalse();
+                    assertThat(r.payment().message()).contains("недоступен");
                 })
                 .verifyComplete();
     }
@@ -383,9 +383,9 @@ class ItemServiceImplTest {
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
-                    assertThat(r.itemDtoList()).isEmpty();
-                    assertThat(r.total()).isZero();
-                    assertThat(r.paymentAvailable()).isTrue();
+                    assertThat(r.cart().itemDtoList()).isEmpty();
+                    assertThat(r.cart().total()).isZero();
+                    assertThat(r.payment().available()).isTrue();
                 })
                 .verifyComplete();
     }
@@ -407,8 +407,8 @@ class ItemServiceImplTest {
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.PLUS))
                 .assertNext(r -> {
-                    assertThat(r.itemDtoList()).hasSize(1);
-                    assertThat(r.itemDtoList().getFirst().count()).isEqualTo(6);
+                    assertThat(r.cart().itemDtoList()).hasSize(1);
+                    assertThat(r.cart().itemDtoList().getFirst().count()).isEqualTo(6);
                 })
                 .verifyComplete();
     }
@@ -427,8 +427,8 @@ class ItemServiceImplTest {
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.DELETE))
                 .assertNext(r -> {
-                    assertThat(r.itemDtoList()).isEmpty();
-                    assertThat(r.total()).isZero();
+                    assertThat(r.cart().itemDtoList()).isEmpty();
+                    assertThat(r.cart().total()).isZero();
                 })
                 .verifyComplete();
 

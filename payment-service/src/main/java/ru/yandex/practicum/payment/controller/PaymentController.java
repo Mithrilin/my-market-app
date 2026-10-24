@@ -30,7 +30,7 @@ public class PaymentController {
 
     @PostMapping
     public Mono<PaymentResponse> pay(@Valid @RequestBody PaymentRequest request) {
-        log.info("Processing payment for order {} with amount {}.", request.orderId(), request.amount());
+        log.info("Processing payment with amount {}.", request.amount());
         return paymentService.pay(request);
     }
 }

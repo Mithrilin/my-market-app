@@ -6,8 +6,6 @@ import ru.yandex.practicum.payment.enums.PaymentStatus;
 @Builder
 public record PaymentResponse(
 
-        Long orderId,
-
         Long amount,
 
         Long newBalance,

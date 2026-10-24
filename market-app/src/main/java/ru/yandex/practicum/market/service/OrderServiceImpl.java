@@ -2,9 +2,7 @@ package ru.yandex.practicum.market.service;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.client.PaymentClient;
@@ -13,14 +11,10 @@ import ru.yandex.practicum.market.dto.OrderDto;
 import ru.yandex.practicum.market.exception.BadRequestException;
 import ru.yandex.practicum.market.exception.NotFoundException;
 import ru.yandex.practicum.market.mapper.OrderMapper;
-import ru.yandex.practicum.market.model.Item;
 import ru.yandex.practicum.market.model.Order;
-import ru.yandex.practicum.market.model.OrderItem;
 import ru.yandex.practicum.market.repository.ItemRepository;
 import ru.yandex.practicum.market.repository.OrderItemRepository;
 import ru.yandex.practicum.market.repository.OrderRepository;
-
-import java.util.List;
 
 import static ru.yandex.practicum.market.service.ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART;
 
@@ -36,6 +30,8 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMapper orderMapper;
 
     private final PaymentClient paymentClient;
+
+    private final OrderPersistenceService orderPersistenceService;
 
     @Override
     public Flux<OrderDto> getOrderList() {
@@ -56,8 +52,6 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    @Transactional
-    @CacheEvict(cacheNames = {"item", "itemList", "cartItems"}, allEntries = true)
     public Mono<OrderDto> createOrder() {
         Mono<OrderDto> orderDtoMono = itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
                 .collectList()
@@ -66,54 +60,19 @@ public class OrderServiceImpl implements OrderService {
                             .mapToLong(i -> i.getPrice() * i.getCount())
                             .sum();
 
-                    Order order = Order.builder().totalSum(totalSum).build();
+                    Mono<Void> paymentStep = items.isEmpty()
+                            ? Mono.empty()
+                            : paymentClient.pay(new PaymentRequest(totalSum))
+                            .onErrorMap(BadRequestException.class,
+                                    e -> new BadRequestException("Оплата не прошла: " + e.getMessage()))
+                            .then();
 
-                    return orderRepository.save(order)
-                            .flatMap(savedOrder -> {
-                                Mono<Void> paymentStep = items.isEmpty()
-                                        ? Mono.empty()
-                                        : paymentClient.pay(new PaymentRequest(savedOrder.getId(), totalSum))
-                                        .onErrorMap(e -> new BadRequestException(
-                                                "Оплата не прошла: " + e.getMessage()))
-                                        .then();
-
-                                return paymentStep.then(Mono.defer(
-                                        () -> saveOrderItemsAndClearCart(savedOrder, items)));
-                            });
+                    return paymentStep.then(Mono.defer(
+                            () -> orderPersistenceService.saveNewOrder(items, totalSum)));
                 })
                 .map(orderMapper::toOrderDto);
         log.info("Order created.");
         return orderDtoMono;
-    }
-
-    private Mono<Void> payForOrder(long totalSum) {
-        return paymentClient.pay(new PaymentRequest(null, totalSum))
-                .onErrorMap(e -> new BadRequestException(
-                        "Оплата не прошла: " + e.getMessage()))
-                .then();
-    }
-
-    private Mono<Order> saveOrderItemsAndClearCart(Order savedOrder, List<Item> items) {
-        if (items.isEmpty()) {
-            savedOrder.setOrderItemList(List.of());
-            return Mono.just(savedOrder);
-        }
-        List<OrderItem> orderItems = items.stream()
-                .map(item -> OrderItem.builder()
-                        .orderId(savedOrder.getId())
-                        .title(item.getTitle())
-                        .price(item.getPrice())
-                        .count(item.getCount())
-                        .build())
-                .toList();
-
-        return orderItemRepository.saveAll(orderItems)
-                .collectList()
-                .flatMap(savedItems -> {
-                    savedOrder.setOrderItemList(savedItems);
-                    items.forEach(i -> i.setCount(0));
-                    return itemRepository.saveAll(items).then(Mono.just(savedOrder));
-                });
     }
 
     private Mono<OrderDto> buildOrderDto(Order order) {

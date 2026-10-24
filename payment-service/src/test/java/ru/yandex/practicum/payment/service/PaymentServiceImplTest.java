@@ -31,11 +31,10 @@ class PaymentServiceImplTest {
     @Test
     @DisplayName("Successful payment decreases balance")
     void pay_shouldDecreaseBalance() {
-        PaymentRequest request = new PaymentRequest(1L, 300L);
+        PaymentRequest request = new PaymentRequest(300L);
 
         StepVerifier.create(paymentService.pay(request))
                 .assertNext(r -> {
-                    assertThat(r.orderId()).isEqualTo(1L);
                     assertThat(r.amount()).isEqualTo(300L);
                     assertThat(r.newBalance()).isEqualTo(700L);
                     assertThat(r.status()).isEqualTo(PaymentStatus.SUCCESS);
@@ -50,7 +49,7 @@ class PaymentServiceImplTest {
     @Test
     @DisplayName("Payment fails when insufficient funds")
     void pay_shouldFailWhenInsufficientFunds() {
-        PaymentRequest request = new PaymentRequest(1L, 5000L);
+        PaymentRequest request = new PaymentRequest(5000L);
 
         StepVerifier.create(paymentService.pay(request))
                 .expectErrorSatisfies(e -> {
@@ -67,7 +66,7 @@ class PaymentServiceImplTest {
     @Test
     @DisplayName("Payment with exact balance succeeds and leaves 0")
     void pay_shouldSucceedWhenAmountEqualsBalance() {
-        PaymentRequest request = new PaymentRequest(1L, 1000L);
+        PaymentRequest request = new PaymentRequest(1000L);
 
         StepVerifier.create(paymentService.pay(request))
                 .assertNext(r -> {
@@ -80,11 +79,11 @@ class PaymentServiceImplTest {
     @Test
     @DisplayName("Consecutive payments accumulate correctly")
     void pay_shouldHandleMultiplePayments() {
-        StepVerifier.create(paymentService.pay(new PaymentRequest(1L, 100L)))
+        StepVerifier.create(paymentService.pay(new PaymentRequest(100L)))
                 .assertNext(r -> assertThat(r.newBalance()).isEqualTo(900L))
                 .verifyComplete();
 
-        StepVerifier.create(paymentService.pay(new PaymentRequest(2L, 200L)))
+        StepVerifier.create(paymentService.pay(new PaymentRequest(200L)))
                 .assertNext(r -> assertThat(r.newBalance()).isEqualTo(700L))
                 .verifyComplete();
 

@@ -43,17 +43,16 @@ class PaymentControllerTest {
     @DisplayName("POST /api/payments returns success")
     void pay_shouldReturnSuccessResponse() {
         when(paymentService.pay(any(PaymentRequest.class)))
-                .thenReturn(Mono.just(new PaymentResponse(1L, 300L, 700L, PaymentStatus.SUCCESS)));
+                .thenReturn(Mono.just(new PaymentResponse(300L, 700L, PaymentStatus.SUCCESS)));
 
         webTestClient.post().uri("/api/payments")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"orderId": 1, "amount": 300}
+                        {"amount": 300}
                         """)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.orderId").isEqualTo(1)
                 .jsonPath("$.amount").isEqualTo(300)
                 .jsonPath("$.newBalance").isEqualTo(700)
                 .jsonPath("$.status").isEqualTo("SUCCESS");
@@ -68,7 +67,7 @@ class PaymentControllerTest {
         webTestClient.post().uri("/api/payments")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"orderId": 1, "amount": 99999}
+                        {"amount": 99999}
                         """)
                 .exchange()
                 .expectStatus().isBadRequest()
@@ -82,19 +81,19 @@ class PaymentControllerTest {
         webTestClient.post().uri("/api/payments")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"orderId": 1, "amount": -100}
+                        {"amount": -100}
                         """)
                 .exchange()
                 .expectStatus().isBadRequest();
     }
 
     @Test
-    @DisplayName("POST /api/payments returns 400 on missing orderId")
-    void pay_shouldReturnBadRequestOnMissingOrderId() {
+    @DisplayName("POST /api/payments returns 400 on missing amount")
+    void pay_shouldReturnBadRequestOnMissingAmount() {
         webTestClient.post().uri("/api/payments")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
-                        {"amount": 100}
+                        {}
                         """)
                 .exchange()
                 .expectStatus().isBadRequest();
