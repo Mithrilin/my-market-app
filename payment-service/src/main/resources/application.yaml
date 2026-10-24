@@ -4,6 +4,13 @@ server:
 payment:
   initial-balance: ${PAYMENT_INITIAL_BALANCE:200000}
 
+springdoc:
+  swagger-ui:
+    url: /openapi/payment-api.yaml
+    path: /swagger-ui.html
+  api-docs:
+    enabled: true
+
 logging:
   level:
     org.springframework.web: INFO

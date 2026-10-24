@@ -11,8 +11,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import ru.yandex.practicum.market.client.PaymentClient;
-import ru.yandex.practicum.market.client.dto.PaymentRequest;
-import ru.yandex.practicum.market.client.dto.PaymentResponse;
+import ru.yandex.practicum.market.client.generated.dto.PaymentRequest;
+import ru.yandex.practicum.market.client.generated.dto.PaymentResponse;
+import ru.yandex.practicum.market.client.generated.dto.PaymentStatus;
 import ru.yandex.practicum.market.dto.OrderDto;
 import ru.yandex.practicum.market.exception.BadRequestException;
 import ru.yandex.practicum.market.exception.NotFoundException;
@@ -152,7 +153,7 @@ class OrderServiceImplTest {
 
         when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.fromIterable(itemsInCart));
         when(paymentClient.pay(any(PaymentRequest.class)))
-                .thenReturn(Mono.just(new PaymentResponse(800L, 9200L, "SUCCESS")));
+                .thenReturn(Mono.just(new PaymentResponse().amount(800L).newBalance(9200L).status(PaymentStatus.SUCCESS)));
         when(orderPersistenceService.saveNewOrder(anyList(), eq(800L)))
                 .thenReturn(Mono.just(savedOrder));
         when(orderMapper.toOrderDto(savedOrder)).thenReturn(newOrderDto);
@@ -165,7 +166,7 @@ class OrderServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(paymentClient).pay(argThat(req -> req.amount() != null && req.amount().equals(800L)));
+        verify(paymentClient).pay(argThat(req -> req.getAmount().equals(800L)));
         verify(orderPersistenceService).saveNewOrder(anyList(), eq(800L));
     }
 
@@ -228,7 +229,8 @@ class OrderServiceImplTest {
 
         when(itemRepository.findByCountGreaterThanEqual(1)).thenReturn(Flux.fromIterable(itemsInCart));
         when(paymentClient.pay(any(PaymentRequest.class)))
-                .thenReturn(Mono.just(new PaymentResponse(expectedTotal, 0L, "SUCCESS")));
+                .thenReturn(Mono.just(new PaymentResponse().amount(expectedTotal).newBalance(0L)
+                        .status(PaymentStatus.SUCCESS)));
         when(orderPersistenceService.saveNewOrder(anyList(), eq(expectedTotal)))
                 .thenReturn(Mono.just(savedOrder));
         when(orderMapper.toOrderDto(savedOrder)).thenReturn(newOrderDto);
@@ -237,8 +239,7 @@ class OrderServiceImplTest {
                 .assertNext(dto -> assertThat(dto.totalSum()).isEqualTo(expectedTotal))
                 .verifyComplete();
 
-        verify(paymentClient).pay(argThat(req -> req.amount() != null
-                && req.amount().equals(expectedTotal)));
+        verify(paymentClient).pay(argThat(req -> req.getAmount().equals(expectedTotal)));
         verify(orderPersistenceService).saveNewOrder(anyList(), eq(expectedTotal));
     }
 

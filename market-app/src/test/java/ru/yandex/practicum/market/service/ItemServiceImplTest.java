@@ -11,7 +11,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import ru.yandex.practicum.market.client.PaymentClient;
-import ru.yandex.practicum.market.client.dto.BalanceResponse;
+import ru.yandex.practicum.market.client.generated.dto.BalanceResponse;
 import ru.yandex.practicum.market.util.TestDataFactory;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
@@ -319,7 +319,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.fromIterable(itemsWithCount));
         when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
-        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
@@ -342,7 +342,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.fromIterable(itemsWithCount));
         when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
-        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(50L)));
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse().balance(50L)));
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
@@ -379,7 +379,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.empty());
         when(itemMapper.toItemDtoList(List.of())).thenReturn(List.of());
-        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.getItemCartList())
                 .assertNext(r -> {
@@ -403,7 +403,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.fromIterable(cartItems));
         when(itemMapper.toItemDtoList(cartItems)).thenReturn(dtoList);
-        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.PLUS))
                 .assertNext(r -> {
@@ -423,7 +423,7 @@ class ItemServiceImplTest {
         when(itemRepository.findByCountGreaterThanEqual(ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
                 .thenReturn(Flux.empty());
         when(itemMapper.toItemDtoList(List.of())).thenReturn(List.of());
-        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
+        when(paymentClient.getBalance()).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.DELETE))
                 .assertNext(r -> {

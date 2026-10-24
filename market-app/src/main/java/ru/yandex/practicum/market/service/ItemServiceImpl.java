@@ -177,7 +177,7 @@ public class ItemServiceImpl implements ItemService {
     private Mono<PaymentStatusDto> resolvePaymentAvailability(long total) {
         return paymentClient.getBalance()
                 .map(balance -> {
-                    if (balance.balance() == null || balance.balance() < total) {
+                    if (balance.getBalance() == null || balance.getBalance() < total) {
                         return new PaymentStatusDto(false,
                                 "Недостаточно средств на счёте для оформления заказа.");
                     }

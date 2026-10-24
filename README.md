@@ -7,14 +7,16 @@
 ## Структура проекта
 
 ````
-my-market-app/               (parent pom, packaging=pom)  
+my-market-app/                (parent pom, packaging=pom)  
+  ├── openapi/
+  │     └── payment-api.yaml  (общая OpenAPI-спецификация payment-service)
   ├── pom.xml  
   ├── docker-compose.yaml  
-  ├── market-app/            (основное веб-приложение)  
+  ├── market-app/             (основное веб-приложение)  
   │     ├── pom.xml  
   │     ├── Dockerfile  
   │     └── src/...  
-  └── payment-service/       (RESTful-сервис платежей)  
+  └── payment-service/        (RESTful-сервис платежей)  
         ├── pom.xml  
         ├── Dockerfile  
         └── src/...  
@@ -26,7 +28,7 @@ my-market-app/               (parent pom, packaging=pom)
 
 ### Общее
 - **Java 21** — основной язык
-- **Spring Boot 3.4.1** — фреймворк
+- **Spring Boot 3.4.13** — фреймворк
 - **Spring WebFlux** — реактивный веб-стек (Project Reactor, Netty)
 - **Spring Validation** — валидация входных данных
 - **Lombok** — сокращение шаблонного кода
@@ -41,11 +43,13 @@ my-market-app/               (parent pom, packaging=pom)
 - **Spring Cache + Spring Data Redis (reactive)** — кеш товаров в Redis
 - **Redis** — кеш карточек, списков и корзины
 - **MapStruct** — маппинг объектов
-- **WebClient** — реактивный HTTP-клиент для вызова payment-service
+- **openapi-generator-maven-plugin** — генерация реактивного клиента payment-service из `openapi/payment-api.yaml`
 
 ### payment-service
 - **Spring WebFlux** — реактивные REST-эндпоинты
 - **Spring Validation** — валидация `PaymentRequest`
+- **openapi-generator-maven-plugin** — генерация REST-интерфейса и DTO из `openapi/payment-api.yaml`
+- **springdoc-openapi (Swagger UI)** — просмотр спецификации: `http://localhost:8081/swagger-ui.html`
 - **In-memory баланс** (`AtomicLong`, инициализируется из конфига) — без БД
 - JSON-обмен
 
@@ -96,13 +100,12 @@ my-market-app/               (parent pom, packaging=pom)
 поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
 
 ### Сервис платежей (`payment-service`)
-
 - `GET /api/payments/balance` — текущий баланс
 - `POST /api/payments` — списание суммы по заказу
 - Баланс изменяемый: `AtomicLong` с CAS-обновлением (безопасно при конкурентных запросах)
 - Начальный баланс задаётся через `payment.initial-balance` (env `PAYMENT_INITIAL_BALANCE`)
 - При недостатке средств — `400 Bad Request` с JSON-ошибкой
-- Валидация `orderId > 0`, `amount > 0`
+- Валидация `amount > 0`
 
 ### Обработка ошибок
 - **`market-app`**: `@ControllerAdvice` (`ErrorHandler`), рендерит `error.html`
@@ -133,10 +136,12 @@ my-market-app/               (parent pom, packaging=pom)
 
 ### payment-service
 
-| Метод | Endpoint | Описание | Тело / ответ |
-|-------|----------|----------|--------------|
-| GET | `/api/payments/balance` | Баланс | → `{"balance": 10000}` |
+| Метод | Endpoint | Описание | Тело / ответ                                                                                                                                |
+|-------|----------|----------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| GET | `/api/payments/balance` | Баланс | → `{"balance": 200000}`                                                                                                                     |
 | POST | `/api/payments` | Списание | `{"amount": 850}` → `{"amount":850,"newBalance":9150,"status":"SUCCESS"}`; при недостатке — `400` с `{"errorMessage":"...","balance":null}` |
+Swagger UI: `http://localhost:8081/swagger-ui.html`  
+Спецификация: `http://localhost:8081/openapi/payment-api.yaml`
 
 ---
 
@@ -167,7 +172,7 @@ docker compose up --build
 ```
 4. **Для остановки приложения:**
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Переменные окружения (Docker Compose)
@@ -217,16 +222,27 @@ mvn -pl market-app spring-boot:run
   2. **вызывает `payment-service`** (`POST /api/payments` с `{amount}`) — вне транзакции;
   3. при успехе — передаёт управление `OrderPersistenceService.saveNewOrder(...)`, где в **короткой** `@Transactional` сохраняются `Order`, `order_items` и обнуляется корзина;
   4. при отказе (`4xx` от payment-service) — `BadRequestException` (HTTP `400`), при недоступности (`5xx`/сеть) — `PaymentServiceException` (HTTP `503`). В обоих случаях в БД ничего не пишется.
-- Если корзина пуста, платёж **не вызывается** (заказ с `totalSum=0` создаётся, как и раньше — зафиксировано тестом).
-- Проверка баланса на странице корзины (`GET /cart/items`) — через `paymentClient.getBalance()`; при недоступности сервиса или недостатке средств — сообщение и disabled-кнопка.
 
 ### Кеш и `count`
-- Кеш хранит `ItemDto`/`ItemListResponse`/`CartPageResponse` **целиком, включая `count`** (упрощение по сравнению с ТЗ, где в кеше `count` не предполагался). Инвалидация выполняется при любом изменении `count` и при оформлении заказа.
-- `@Cacheable` используется на реактивных `Mono`; `RedisCacheManager` в реактивном стеке использует блокирующий API Spring Data Redis под капотом — для учебного проекта приемлемо.
+- **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id`
+- **Список товаров** (`itemList`): кешируется `ItemListResponse` по ключу `sort:search:pageNumber:pageSize`
+- **TTL** — 3 минуты (`CacheConfig.CACHE_TTL`)
+- **Инвалидация** (`@CacheEvict(allEntries = true)`) при:
+  - изменении количества товара со страницы товара / списка (`changeItemCountFromItemPage`)
+  - изменении количества в корзине (`changeItemCountFromCartPage`)
+  - сохранении нового заказа (`OrderPersistenceService.saveNewOrder`)
+- Сериализация — `GenericJackson2JsonRedisSerializer`
+- `null`-значения не кешируются (`disableCachingNullValues`)
+- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service, поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
 
 ### Таймауты вызова payment-service
 - `WebClient` настроен на `connect-timeout` и `response-timeout` из `payment.service.timeout-ms` (по умолчанию 2000 мс).
 - При недоступности payment-service кнопка «Купить» на странице корзины блокируется, показывается сообщение.
+
+### Особенности OpenAPI-клиента
+- Сгенерированный `ApiClient` (`library=webclient`) строит URI от **своего** поля `basePath`, а не от `WebClient.baseUrl`. Поэтому в `PaymentClientImpl` явно вызывается `apiClient.setBasePath(properties.baseUrl())`, а `WebClient` конфигурируется только транспортом (таймауты, коннектор).
+- `baseUrl` проверяется на `null`/blank на старте — если переменная `PAYMENT_SERVICE_URL` не задана, приложение падает с понятным сообщением.
+- Ошибки клиента разделены: `4xx` → `BadRequestException` (`400`), `5xx`/сеть → `PaymentServiceException` (`503`).
 
 ## Структура базы данных
 

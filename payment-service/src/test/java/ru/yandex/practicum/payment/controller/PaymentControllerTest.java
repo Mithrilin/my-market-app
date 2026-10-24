@@ -8,10 +8,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.payment.dto.BalanceResponse;
-import ru.yandex.practicum.payment.dto.PaymentRequest;
-import ru.yandex.practicum.payment.dto.PaymentResponse;
-import ru.yandex.practicum.payment.enums.PaymentStatus;
+import ru.yandex.practicum.payment.dto.generated.BalanceResponse;
+import ru.yandex.practicum.payment.dto.generated.PaymentRequest;
+import ru.yandex.practicum.payment.dto.generated.PaymentResponse;
+import ru.yandex.practicum.payment.dto.generated.PaymentStatus;
 import ru.yandex.practicum.payment.exception.InsufficientFundsException;
 import ru.yandex.practicum.payment.service.PaymentService;
 
@@ -30,7 +30,8 @@ class PaymentControllerTest {
     @Test
     @DisplayName("GET /api/payments/balance returns balance")
     void getBalance_shouldReturnBalance() {
-        when(paymentService.getBalance()).thenReturn(Mono.just(new BalanceResponse(1000L)));
+        when(paymentService.getBalance())
+                .thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         webTestClient.get().uri("/api/payments/balance")
                 .exchange()
@@ -43,7 +44,8 @@ class PaymentControllerTest {
     @DisplayName("POST /api/payments returns success")
     void pay_shouldReturnSuccessResponse() {
         when(paymentService.pay(any(PaymentRequest.class)))
-                .thenReturn(Mono.just(new PaymentResponse(300L, 700L, PaymentStatus.SUCCESS)));
+                .thenReturn(Mono.just(new PaymentResponse()
+                        .amount(300L).newBalance(700L).status(PaymentStatus.SUCCESS)));
 
         webTestClient.post().uri("/api/payments")
                 .contentType(MediaType.APPLICATION_JSON)

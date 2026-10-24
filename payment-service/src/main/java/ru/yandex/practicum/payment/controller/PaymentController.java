@@ -1,36 +1,38 @@
 package ru.yandex.practicum.payment.controller;
 
-import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.payment.dto.BalanceResponse;
-import ru.yandex.practicum.payment.dto.PaymentRequest;
-import ru.yandex.practicum.payment.dto.PaymentResponse;
+import ru.yandex.practicum.payment.api.generated.PaymentsApi;
+import ru.yandex.practicum.payment.dto.generated.BalanceResponse;
+import ru.yandex.practicum.payment.dto.generated.PaymentRequest;
+import ru.yandex.practicum.payment.dto.generated.PaymentResponse;
 import ru.yandex.practicum.payment.service.PaymentService;
 
 @Slf4j
 @RestController
 @AllArgsConstructor
-@RequestMapping("/api/payments")
-public class PaymentController {
+public class PaymentController implements PaymentsApi {
 
     private final PaymentService paymentService;
 
-    @GetMapping("/balance")
-    public Mono<BalanceResponse> getBalance() {
+    @Override
+    public Mono<ResponseEntity<BalanceResponse>> getBalance(ServerWebExchange exchange) {
         log.info("Getting current balance.");
-        return paymentService.getBalance();
+        return paymentService.getBalance()
+                .map(ResponseEntity::ok);
     }
 
-    @PostMapping
-    public Mono<PaymentResponse> pay(@Valid @RequestBody PaymentRequest request) {
-        log.info("Processing payment with amount {}.", request.amount());
-        return paymentService.pay(request);
+    @Override
+    public Mono<ResponseEntity<PaymentResponse>> pay(Mono<PaymentRequest> paymentRequest,
+                                                     ServerWebExchange exchange) {
+        return paymentRequest.flatMap(request -> {
+            log.info("Processing payment with amount {}.", request.getAmount());
+            return paymentService.pay(request)
+                    .map(ResponseEntity::ok);
+        });
     }
 }

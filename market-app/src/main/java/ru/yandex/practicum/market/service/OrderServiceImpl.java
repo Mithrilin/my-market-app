@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.client.PaymentClient;
-import ru.yandex.practicum.market.client.dto.PaymentRequest;
+import ru.yandex.practicum.market.client.generated.dto.PaymentRequest;
 import ru.yandex.practicum.market.dto.OrderDto;
 import ru.yandex.practicum.market.exception.BadRequestException;
 import ru.yandex.practicum.market.exception.NotFoundException;
@@ -62,7 +62,7 @@ public class OrderServiceImpl implements OrderService {
 
                     Mono<Void> paymentStep = items.isEmpty()
                             ? Mono.empty()
-                            : paymentClient.pay(new PaymentRequest(totalSum))
+                            : paymentClient.pay(new PaymentRequest().amount(totalSum))
                             .onErrorMap(BadRequestException.class,
                                     e -> new BadRequestException("Оплата не прошла: " + e.getMessage()))
                             .then();
