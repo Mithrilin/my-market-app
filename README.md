@@ -1,167 +1,248 @@
 # My Market App
 
-Реактивное Spring Boot-приложение для интернет-магазина: каталог товаров, корзина, оформление заказов.
+Мультимодульное реактивное приложение интернет-магазина: витрина с каталогом товаров, корзиной и оформлением заказов + отдельный RESTful-сервис платежей.
+
+---
+
+## Структура проекта
+
+````
+my-market-app/                (parent pom, packaging=pom)  
+  ├── openapi/
+  │     └── payment-api.yaml  (общая OpenAPI-спецификация payment-service)
+  ├── pom.xml  
+  ├── docker-compose.yaml  
+  ├── market-app/             (основное веб-приложение)  
+  │     ├── pom.xml  
+  │     ├── Dockerfile  
+  │     └── src/...  
+  └── payment-service/        (RESTful-сервис платежей)  
+        ├── pom.xml  
+        ├── Dockerfile  
+        └── src/...  
+````
 
 ---
 
 ## Технологический стек
 
-- **Java 21** — основной язык программирования
-- **Spring Boot 3.4.1** — фреймворк для создания приложений
+### Общее
+- **Java 21** — основной язык
+- **Spring Boot 3.4.13** — фреймворк
 - **Spring WebFlux** — реактивный веб-стек (Project Reactor, Netty)
-- **Spring Data R2DBC** — реактивный доступ к реляционной БД
 - **Spring Validation** — валидация входных данных
-- **Thymeleaf** — шаблонизатор для формирования HTML-страниц (реактивный режим)
-- **PostgreSQL** — реляционная база данных
-- **R2DBC PostgreSQL Driver** — реактивный драйвер PostgreSQL
-- **Lombok** — сокращение шаблонного кода (геттеры, сеттеры, конструкторы)
-- **MapStruct** — маппинг объектов между слоями
-- **Maven** — система сборки
-- **Reactor Test** — тестирование реактивных потоков (`StepVerifier`)
-- **Testcontainers** — интеграционные тесты с реальным PostgreSQL
-- **Docker** — контейнеризация
+- **Lombok** — сокращение шаблонного кода
+- **Maven** — система сборки (мультимодульная)
+- **Docker / Docker Compose** — контейнеризация и локальный запуск
+
+### market-app
+- **Spring Data R2DBC** — реактивный доступ к PostgreSQL
+- **R2DBC PostgreSQL Driver** — драйвер
+- **PostgreSQL** — БД каталога и заказов
+- **Thymeleaf (reactive)** — шаблонизатор HTML
+- **Spring Cache + Spring Data Redis (reactive)** — кеш товаров в Redis
+- **Redis** — кеш карточек, списков и корзины
+- **MapStruct** — маппинг объектов
+- **openapi-generator-maven-plugin** — генерация реактивного клиента payment-service из `openapi/payment-api.yaml`
+
+### payment-service
+- **Spring WebFlux** — реактивные REST-эндпоинты
+- **Spring Validation** — валидация `PaymentRequest`
+- **openapi-generator-maven-plugin** — генерация REST-интерфейса и DTO из `openapi/payment-api.yaml`
+- **springdoc-openapi (Swagger UI)** — просмотр спецификации: `http://localhost:8081/swagger-ui.html`
+- **In-memory баланс** (`AtomicLong`, инициализируется из конфига) — без БД
+- JSON-обмен
+
+### Тесты
+- **Reactor Test** — `StepVerifier` для реактивных потоков
+- **Testcontainers** — интеграционные тесты с PostgreSQL (в `market-app`)
+- **Mockito** — unit-тесты сервисов
+- **`@WebFluxTest` / `WebTestClient`** — тесты контроллеров
+- **`@DataR2dbcTest`** — тесты репозиториев
+
+---
 
 ## Функциональные возможности
 
-### Управление товарами
-- Просмотр списка всех товаров с пагинацией (по 5 товаров на страницу)
-- Фильтрация товаров по названию и описанию
-- Сортировка товаров:
-    - По алфавиту (A-Z)
-    - По цене (от дешевых к дорогим)
-    - Без сортировки (по умолчанию)
-- Просмотр детальной информации о товаре
-- Добавление товаров в корзину
-- Удаление товаров из корзины
+### Витрина (`market-app`)
 
-### Корзина покупок
-- Просмотр всех товаров, добавленных в корзину
-- Увеличение/уменьшение количества товаров в корзине
-- Удаление товаров из корзины (установка количества в 0)
-- Автоматический подсчет общей стоимости всех товаров в корзине
+#### Управление товарами
+- Просмотр списка товаров с пагинацией (по умолчанию 5 на страницу)
+- Фильтрация по названию и описанию
+- Сортировка: по алфавиту (A-Z), по цене (возр.), без сортировки
+- Просмотр детальной карточки товара
+- Добавление/удаление товаров в корзину
 
-### Оформление заказов
-- Создание заказа на основе товаров в корзине
-- Автоматическое обнуление корзины после оформления заказа
-- Просмотр списка всех оформленных заказов
-- Просмотр детальной информации о заказе:
-    - Состав заказа с количеством каждого товара
-    - Общая сумма заказа
-- Отображение статуса нового заказа
+#### Корзина
+- Просмотр товаров в корзине
+- Увеличение/уменьшение количества (`PLUS`/`MINUS`)
+- Удаление из корзины (`DELETE` — обнуление `count`)
+- Подсчёт суммы
+- **Проверка возможности оплаты**: кнопка «Купить» активна, только если баланс в payment-service ≥ суммы корзины и сервис доступен. Иначе — сообщение и заблокированная кнопка.
+
+#### Оформление заказов
+- Платёж через payment-service (до сохранения позиций заказа)
+- При успехе — создание заказа, обнуление корзины, переход на страницу заказа
+- При отказе/недоступности платежа — заказ **не создаётся**, показывается ошибка (`400`/`500` через `ErrorHandler`)
+- Просмотр списка заказов и детальной страницы заказа
+
+#### Кеширование в Redis (`market-app`)
+- **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id`
+- **Список товаров** (`itemList`): кешируется `ItemListResponse` по ключу `sort:search:pageNumber:pageSize`
+- **TTL** — 3 минуты (`CacheConfig.CACHE_TTL`)
+- **Инвалидация** (`@CacheEvict(allEntries = true)`) при:
+  - изменении количества товара со страницы товара / списка (`changeItemCountFromItemPage`)
+  - изменении количества в корзине (`changeItemCountFromCartPage`)
+  - сохранении нового заказа (`OrderPersistenceService.saveNewOrder`)
+- Сериализация — `GenericJackson2JsonRedisSerializer`
+- `null`-значения не кешируются (`disableCachingNullValues`)
+- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service, 
+поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
+
+### Сервис платежей (`payment-service`)
+- `GET /api/payments/balance` — текущий баланс
+- `POST /api/payments` — списание суммы по заказу
+- Баланс изменяемый: `AtomicLong` с CAS-обновлением (безопасно при конкурентных запросах)
+- Начальный баланс задаётся через `payment.initial-balance` (env `PAYMENT_INITIAL_BALANCE`)
+- При недостатке средств — `400 Bad Request` с JSON-ошибкой
+- Валидация `amount > 0`
 
 ### Обработка ошибок
-- Централизованный реактивный обработчик исключений (`@ControllerAdvice`)
-- Корректные HTTP-статусы:
-  - `400 Bad Request` — отсутствующие/невалидные параметры (`MissingRequestValueException`, `ConstraintViolationException`, `WebExchangeBindException`)
-  - `404 Not Found` — сущность не найдена (`NotFoundException`)
-  - `500 Internal Server Error` — непредвиденные ошибки
-- Логирование всех ошибок
+- **`market-app`**: `@ControllerAdvice` (`ErrorHandler`), рендерит `error.html`
+  - `404` — `NotFoundException`
+  - `400` — `BadRequestException`, `ConstraintViolationException`, `WebExchangeBindException`, `MissingRequestValueException`, `ServerWebInputException`
+  - `500` — прочие исключения
+- **`payment-service`**: `@RestControllerAdvice` (`ErrorHandler`), JSON-ошибки
+  - `400` — `InsufficientFundsException`, `WebExchangeBindException`
+  - `500` — прочие исключения
+
+---
 
 ## API Endpoints
 
-### Товары (ItemController)
+### market-app
 
 | Метод | Endpoint | Описание | Параметры |
 |-------|----------|----------|-----------|
-| GET | `/` или `/items` | Получить список товаров с пагинацией и фильтрацией | `search` - поисковый запрос (опционально)<br>`sort` - сортировка (NO, ALPHA, PRICE)<br>`pageNumber` - номер страницы<br>`pageSize` - размер страницы |
-| GET | `/items/{id}` | Получить детальную информацию о товаре по ID | `id` - идентификатор товара |
-| POST | `/items/{id}` | Изменить количество товара со страницы товара | `id` - идентификатор товара<br>`action` - действие (PLUS, MINUS, DELETE) |
-| POST | `/items` | Изменить количество товара со страницы списка | `id` - идентификатор товара<br>`action` - действие (PLUS, MINUS, DELETE)<br>`search` - поисковый запрос<br>`sort` - сортировка<br>`pageNumber` - номер страницы<br>`pageSize` - размер страницы |
+| GET | `/` или `/items` | Список товаров | `search`, `sort` (NO/ALPHA/PRICE), `pageNumber`, `pageSize` |
+| GET | `/items/{id}` | Карточка товара | `id` |
+| POST | `/items/{id}` | Изменить количество со страницы товара | `id`, `action` (PLUS/MINUS/DELETE) |
+| POST | `/items` | Изменить количество со списка | `id`, `action`, `search`, `sort`, `pageNumber`, `pageSize` |
+| GET | `/cart/items` | Корзина | — |
+| POST | `/cart/items` | Изменить количество в корзине | `id`, `action` |
+| GET | `/orders` | Список заказов | — |
+| GET | `/orders/{id}` | Заказ по ID | `id`, `newOrder` (boolean, default false) |
+| POST | `/buy` | Оформить заказ | — |
 
-### Корзина (ItemCartController)
+### payment-service
 
-| Метод | Endpoint | Описание | Параметры |
-|-------|----------|----------|-----------|
-| GET | `/cart/items` | Получить список товаров в корзине | - |
-| POST | `/cart/items` | Изменить количество товара в корзине | `id` - идентификатор товара<br>`action` - действие (PLUS, MINUS, DELETE) |
+| Метод | Endpoint | Описание | Тело / ответ                                                                                                                                |
+|-------|----------|----------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| GET | `/api/payments/balance` | Баланс | → `{"balance": 200000}`                                                                                                                     |
+| POST | `/api/payments` | Списание | `{"amount": 850}` → `{"amount":850,"newBalance":9150,"status":"SUCCESS"}`; при недостатке — `400` с `{"errorMessage":"...","balance":null}` |
+Swagger UI: `http://localhost:8081/swagger-ui.html`  
+Спецификация: `http://localhost:8081/openapi/payment-api.yaml`
 
-### Заказы (OrderController)
-
-| Метод | Endpoint | Описание | Параметры |
-|-------|----------|----------|-----------|
-| GET | `/orders` | Получить список всех заказов | - |
-| GET | `/orders/{id}` | Получить детальную информацию о заказе по ID | `id` - идентификатор заказа<br>`newOrder` - флаг нового заказа (по умолчанию false) |
-| POST | `/buy` | Создать новый заказ из товаров в корзине | - |
+---
 
 ## Установка и запуск
 
 ### Требования
-- Java 21 или выше
+- Java 21+
 - Maven 3.8+
-- PostgreSQL 16+
-- Docker и Docker Compose (опционально)
+- Docker и Docker Compose
+- (опционально, для локального запуска без Docker) PostgreSQL 16+, Redis 7+
 
-### Локальный запуск
+### Запуск через Docker Compose (рекомендуется)
 
-1. **Клонируйте репозиторий:**
+1. **Соберите jar-файлы** (Dockerfile ожидает готовые `target/*.jar`):
 ```bash
-git clone https://github.com/your-username/my-market-app.git
-cd my-market-app
-```
-2. **Настройте подключение к PostgreSQL в файле src/main/resources/application.yaml:**
-```bash
-spring:
-  r2dbc:
-    url: r2dbc:postgresql://localhost:5432/market-bd
-    username: postgres
-    password: postgres
-```
-3. **Создайте базу данных:**
-```bash
-CREATE DATABASE market-bd;
-```
-4. **Соберите проект:**
-```bash
-mvn clean package
-```
-5. **Запустите приложение:**
-```bash
-mvn spring-boot:run
-```
-6. **Откройте браузер и перейдите по адресу:**
-```bash
-http://localhost:8080
-```
-
-### Запуск с Docker
-1. **Убедитесь, что Docker и Docker Compose установлены:**
-```bash
-docker --version
-docker-compose --version
+mvn clean package -DskipTests
 ```
 2. **Запустите приложение с помощью Docker Compose:**
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
-3. **Приложение будет доступно по адресу:**
+3. **Сервисы будут доступны:**
 ```bash
-http://localhost:8080
+- витрина: http://localhost:8080
+- payment-service: http://localhost:8081
+- PostgreSQL: localhost:5432 (market-bd)
+- Redis: localhost:6379
 ```
 4. **Для остановки приложения:**
 ```bash
-docker-compose down
+docker compose down
 ```
 
-### Проверка работоспособности
-После запуска вы сможете:
-1. Просматривать список товаров на главной странице
-2. Добавлять товары в корзину
-3. Управлять корзиной покупок
-4. Оформлять заказы
-
-### Возможные проблемы и их решение
-**Проблема:** Ошибка подключения к базе данных  
-**Решение:** Проверьте, что PostgreSQL запущен и настройки в application.yaml соответствуют вашей конфигурации
-
-**Проблема:** Ошибка "Connection refused"  
-**Решение:** Убедитесь, что порт 5432 не занят другим приложением
-
-**Проблема:** Ошибка сборки Maven  
-**Решение:** Очистите кэш Maven и пересоберите проект:
+### Переменные окружения (Docker Compose)
+market-app:
 ```bash
-mvn clean
-mvn compile
+- SPRING_R2DBC_URL=r2dbc:postgresql://market-bd:5432/market-bd
+- SPRING_R2DBC_USERNAME=postgres
+- SPRING_R2DBC_PASSWORD=postgres
+- SPRING_DATA_REDIS_HOST=redis
+- SPRING_DATA_REDIS_PORT=6379
+- PAYMENT_SERVICE_URL=http://payment-service:8081
+- PAYMENT_SERVICE_TIMEOUT_MS=2000
 ```
+payment-service:
+```bash
+- PAYMENT_INITIAL_BALANCE=200000
+```
+
+### Локальный запуск
+
+1. **PostgreSQL:**  
+Создайте базу данных:
+```bash
+CREATE DATABASE market-bd;
+```
+2. **Redis**  
+   запустить на
+```bash
+localhost:6379
+```
+3. **payment-service:**
+```bash
+mvn -pl payment-service spring-boot:run
+```
+(слушает 8081, начальный баланс payment.initial-balance, по умолчанию 200000)
+4. **market-app:**
+```bash
+mvn -pl market-app spring-boot:run
+```
+(слушает 8080, ждёт PostgreSQL на localhost:5432, Redis на localhost:6379, payment-service на localhost:8081)
+
+## Особенности реализации
+
+### Оплата
+- `OrderServiceImpl.createOrder()` (без `@Transactional`):
+  1. читает корзину, считает сумму;
+  2. **вызывает `payment-service`** (`POST /api/payments` с `{amount}`) — вне транзакции;
+  3. при успехе — передаёт управление `OrderPersistenceService.saveNewOrder(...)`, где в **короткой** `@Transactional` сохраняются `Order`, `order_items` и обнуляется корзина;
+  4. при отказе (`4xx` от payment-service) — `BadRequestException` (HTTP `400`), при недоступности (`5xx`/сеть) — `PaymentServiceException` (HTTP `503`). В обоих случаях в БД ничего не пишется.
+
+### Кеш и `count`
+- **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id`
+- **Список товаров** (`itemList`): кешируется `ItemListResponse` по ключу `sort:search:pageNumber:pageSize`
+- **TTL** — 3 минуты (`CacheConfig.CACHE_TTL`)
+- **Инвалидация** (`@CacheEvict(allEntries = true)`) при:
+  - изменении количества товара со страницы товара / списка (`changeItemCountFromItemPage`)
+  - изменении количества в корзине (`changeItemCountFromCartPage`)
+  - сохранении нового заказа (`OrderPersistenceService.saveNewOrder`)
+- Сериализация — `GenericJackson2JsonRedisSerializer`
+- `null`-значения не кешируются (`disableCachingNullValues`)
+- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service, поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
+
+### Таймауты вызова payment-service
+- `WebClient` настроен на `connect-timeout` и `response-timeout` из `payment.service.timeout-ms` (по умолчанию 2000 мс).
+- При недоступности payment-service кнопка «Купить» на странице корзины блокируется, показывается сообщение.
+
+### Особенности OpenAPI-клиента
+- Сгенерированный `ApiClient` (`library=webclient`) строит URI от **своего** поля `basePath`, а не от `WebClient.baseUrl`. Поэтому в `PaymentClientImpl` явно вызывается `apiClient.setBasePath(properties.baseUrl())`, а `WebClient` конфигурируется только транспортом (таймауты, коннектор).
+- `baseUrl` проверяется на `null`/blank на старте — если переменная `PAYMENT_SERVICE_URL` не задана, приложение падает с понятным сообщением.
+- Ошибки клиента разделены: `4xx` → `BadRequestException` (`400`), `5xx`/сеть → `PaymentServiceException` (`503`).
 
 ## Структура базы данных
 

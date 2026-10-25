@@ -1,16 +1,41 @@
 services:
-  insider-service:
-    build: .
+  market-app:
+    build:
+      context: ./market-app
+      dockerfile: Dockerfile
     image: my-market-app-image
     container_name: my-market-app-container
     ports:
       - "8080:8080"
     depends_on:
       - market-bd
+      - redis
+      - payment-service
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://market-bd:5432/market-bd
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_R2DBC_URL=r2dbc:postgresql://market-bd:5432/market-bd
+      - SPRING_R2DBC_USERNAME=postgres
+      - SPRING_R2DBC_PASSWORD=postgres
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - PAYMENT_SERVICE_URL=http://payment-service:8081
+      - PAYMENT_SERVICE_TIMEOUT_MS=2000
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    image: payment-service-image
+    container_name: payment-service-container
+    ports:
+      - "8081:8081"
+    environment:
+      - PAYMENT_INITIAL_BALANCE=200000
+
+  redis:
+    image: redis:7-alpine
+    container_name: market-redis-container
+    ports:
+      - "6379:6379"
 
   market-bd:
     image: postgres:18-alpine
