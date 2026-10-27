@@ -1,3 +1,6 @@
+server:
+  port: 8081
+
 logging:
   level:
     org.springframework.r2dbc: DEBUG
@@ -24,8 +27,20 @@ spring:
   thymeleaf:
     reactive:
       max-chunk-size: 8192
+  security:
+    oauth2:
+      client:
+        registration:
+          market-app:
+            client-id: ${MARKET_APP_CLIENT_ID:market-app}
+            client-secret: ${MARKET_APP_CLIENT_SECRET:market-secret}
+            authorization-grant-type: client_credentials
+            provider: market-keycloak
+        provider:
+          market-keycloak:
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8080/realms/market/protocol/openid-connect/token}
 
 payment:
   service:
-    base-url: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+    base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082}
     timeout-ms: ${PAYMENT_SERVICE_TIMEOUT_MS:2000}

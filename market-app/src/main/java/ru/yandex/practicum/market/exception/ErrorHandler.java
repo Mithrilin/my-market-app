@@ -84,6 +84,16 @@ public class ErrorHandler {
                 .build());
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Mono<Rendering> handleForbiddenException(ForbiddenException e) {
+        log.error(e.getLocalizedMessage());
+        return Mono.just(Rendering.view("error")
+                .modelAttribute("errorMessage", e.getMessage())
+                .modelAttribute("errorStatus", 403)
+                .build());
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Mono<Rendering> handleAll(Exception e) {
