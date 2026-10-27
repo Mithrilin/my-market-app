@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.dto.ItemChangeCountRequest;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
 import ru.yandex.practicum.market.enums.Action;
+import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.ItemService;
 
 @Slf4j
@@ -28,18 +30,22 @@ public class ItemController {
     private final ItemService itemService;
 
     @GetMapping("/items/{id}")
-    public Mono<Rendering> getItemById(@PathVariable @Positive(message = "Id must be greater than 0") Long id) {
+    public Mono<Rendering> getItemById(@PathVariable @Positive(message = "Id must be greater than 0") Long id,
+                                       @AuthenticationPrincipal CustomUserDetails user) {
         log.debug("Getting item by ID {}.", id);
-        return itemService.getItemById(id)
+        Long userId = user == null ? 0L : user.getId();
+        return itemService.getItemById(id, userId)
                 .map(item -> Rendering.view("item")
                         .modelAttribute("item", item)
                         .build());
     }
 
     @GetMapping({"/", "/items"})
-    public Mono<Rendering> getItemList(@Valid @ModelAttribute ItemListSearchRequest req) {
+    public Mono<Rendering> getItemList(@Valid @ModelAttribute ItemListSearchRequest req,
+                                       @AuthenticationPrincipal CustomUserDetails user) {
         log.info("Getting the list of items.");
-        return itemService.getItemList(req)
+        Long userId = user == null ? 0L : user.getId();
+        return itemService.getItemList(req, userId)
                 .map(response -> Rendering.view("items")
                         .modelAttribute("items", response.splittedItemDtoList())
                         .modelAttribute("search", req.search())
@@ -51,18 +57,20 @@ public class ItemController {
     @PostMapping("/items/{id}")
     public Mono<Rendering> changeItemCountFromItemPage(@PathVariable @Positive(message = "Id must be greater than 0")
                                                        Long id,
-                                                       @RequestParam Action action) {
+                                                       @RequestParam Action action,
+                                                       @AuthenticationPrincipal CustomUserDetails user) {
         log.info("Changing count of item with ID {}.", id);
-        return itemService.changeItemCountFromItemPage(id, action)
+        return itemService.changeItemCountFromItemPage(id, action, user.getId())
                 .map(item -> Rendering.view("item")
                         .modelAttribute("item", item)
                         .build());
     }
 
     @PostMapping("/items")
-    public Mono<Rendering> changeItemCountFromItemListPage(@Valid @ModelAttribute ItemChangeCountRequest req) {
+    public Mono<Rendering> changeItemCountFromItemListPage(@Valid @ModelAttribute ItemChangeCountRequest req,
+                                                           @AuthenticationPrincipal CustomUserDetails user) {
         log.info("Changing count of item from item list page.");
-        return itemService.changeItemCountFromItemPage(req.id(), req.action())
+        return itemService.changeItemCountFromItemPage(req.id(), req.action(), user.getId())
                 .thenReturn(Rendering.redirectTo(buildItemsUrl(req)).build());
     }
 
