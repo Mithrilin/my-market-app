@@ -9,6 +9,7 @@ import ru.yandex.practicum.market.client.PaymentClient;
 import ru.yandex.practicum.market.client.generated.dto.PaymentRequest;
 import ru.yandex.practicum.market.dto.OrderDto;
 import ru.yandex.practicum.market.exception.BadRequestException;
+import ru.yandex.practicum.market.exception.ForbiddenException;
 import ru.yandex.practicum.market.exception.NotFoundException;
 import ru.yandex.practicum.market.mapper.OrderMapper;
 import ru.yandex.practicum.market.model.Order;
@@ -28,32 +29,36 @@ public class OrderServiceImpl implements OrderService {
     private final ItemRepository itemRepository;
 
     private final OrderMapper orderMapper;
-
     private final PaymentClient paymentClient;
-
     private final OrderPersistenceService orderPersistenceService;
 
     @Override
-    public Flux<OrderDto> getOrderList() {
-        Flux<OrderDto> orderDtoFlux = orderRepository.findAll()
+    public Flux<OrderDto> getOrderList(Long userId) {
+        Flux<OrderDto> orderDtoFlux = orderRepository.findByUserId(userId)
                 .concatMap(this::buildOrderDto);
-        log.info("Order List has been returned.");
+        log.info("Order List has been returned for user {}.", userId);
         return orderDtoFlux;
     }
 
     @Override
-    public Mono<OrderDto> getOrderById(Long id) {
+    public Mono<OrderDto> getOrderById(Long id, Long userId) {
         Mono<OrderDto> orderDtoMono = orderRepository.findById(id)
                 .switchIfEmpty(Mono.error(new NotFoundException(
                         String.format("Order with ID = %d not found", id))))
-                .flatMap(this::buildOrderDto);
-        log.info("Order with ID = {} returned.", id);
+                .flatMap(order -> {
+                    if (!order.getUserId().equals(userId)) {
+                        return Mono.error(new ForbiddenException(
+                                String.format("Access to order with ID = %d is forbidden", id)));
+                    }
+                    return buildOrderDto(order);
+                });
+        log.info("Order with ID = {} returned for user {}.", id, userId);
         return orderDtoMono;
     }
 
     @Override
-    public Mono<OrderDto> createOrder() {
-        Mono<OrderDto> orderDtoMono = itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
+    public Mono<OrderDto> createOrder(Long userId) {
+        Mono<OrderDto> orderDtoMono = itemRepository.findCartItemsByUserId(userId, MIN_COUNT_ITEMS_IN_CART)
                 .collectList()
                 .flatMap(items -> {
                     long totalSum = items.stream()
@@ -62,16 +67,16 @@ public class OrderServiceImpl implements OrderService {
 
                     Mono<Void> paymentStep = items.isEmpty()
                             ? Mono.empty()
-                            : paymentClient.pay(new PaymentRequest().amount(totalSum))
+                            : paymentClient.pay(new PaymentRequest().userId(userId).amount(totalSum))
                             .onErrorMap(BadRequestException.class,
                                     e -> new BadRequestException("Оплата не прошла: " + e.getMessage()))
                             .then();
 
                     return paymentStep.then(Mono.defer(
-                            () -> orderPersistenceService.saveNewOrder(items, totalSum)));
+                            () -> orderPersistenceService.saveNewOrder(items, totalSum, userId)));
                 })
                 .map(orderMapper::toOrderDto);
-        log.info("Order created.");
+        log.info("Order created for user {}.", userId);
         return orderDtoMono;
     }
 
