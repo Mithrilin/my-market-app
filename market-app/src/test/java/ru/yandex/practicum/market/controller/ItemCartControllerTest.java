@@ -5,22 +5,30 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
+import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
+import ru.yandex.practicum.market.config.SecurityConfig;
 import ru.yandex.practicum.market.dto.CartDto;
 import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.PaymentStatusDto;
 import ru.yandex.practicum.market.enums.Action;
+import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.ItemService;
 import ru.yandex.practicum.market.util.TestDataFactory;
 
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @WebFluxTest(ItemCartController.class)
+@Import(SecurityConfig.class)
 class ItemCartControllerTest {
 
     @Autowired
@@ -29,7 +37,11 @@ class ItemCartControllerTest {
     @MockitoBean
     private ItemService itemService;
 
+    @MockitoBean
+    private ReactiveUserDetailsService reactiveUserDetailsService;
+
     private CartPageResponse testCartResponse;
+    private CustomUserDetails testUser;
 
     @BeforeEach
     void setUp() {
@@ -40,14 +52,16 @@ class ItemCartControllerTest {
         testCartResponse = new CartPageResponse(
                 new CartDto(items, 700L),
                 new PaymentStatusDto(true, null));
+        testUser = new CustomUserDetails(TestDataFactory.createTestUser(1L, "user", "password", "ROLE_USER"));
     }
 
     @Test
     @DisplayName("Successful getting Cart Page")
     void getItemCartList_shouldReturnCartPage() {
-        when(itemService.getItemCartList()).thenReturn(Mono.just(testCartResponse));
+        when(itemService.getItemCartList(anyLong())).thenReturn(Mono.just(testCartResponse));
 
-        webTestClient.get().uri("/cart/items")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .get().uri("/cart/items")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -55,11 +69,12 @@ class ItemCartControllerTest {
     @Test
     @DisplayName("Successful change of the quantity of goods in the Cart (PLUS)")
     void changeItemCountFromCartPage_shouldIncreaseItemCountInCart() {
-        when(itemService.changeItemCountFromCartPage(1L, Action.PLUS))
+        when(itemService.changeItemCountFromCartPage(anyLong(), eq(Action.PLUS), anyLong()))
                 .thenReturn(Mono.just(testCartResponse));
 
-        webTestClient.post()
-                .uri("/cart/items?id=1&action=PLUS")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/cart/items?id=1&action=PLUS")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -67,11 +82,12 @@ class ItemCartControllerTest {
     @Test
     @DisplayName("Successful decrease count in Cart")
     void changeItemCountFromCartPage_shouldDecreaseItemCountInCart() {
-        when(itemService.changeItemCountFromCartPage(1L, Action.MINUS))
+        when(itemService.changeItemCountFromCartPage(anyLong(), eq(Action.MINUS), anyLong()))
                 .thenReturn(Mono.just(testCartResponse));
 
-        webTestClient.post()
-                .uri("/cart/items?id=1&action=MINUS")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/cart/items?id=1&action=MINUS")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -79,8 +95,9 @@ class ItemCartControllerTest {
     @Test
     @DisplayName("Return Error when negative Id")
     void shouldReturnErrorForNegativeId() {
-        webTestClient.post()
-                .uri("/cart/items?id=-1&action=PLUS")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/cart/items?id=-1&action=PLUS")
                 .exchange()
                 .expectStatus().isBadRequest();
     }
@@ -88,9 +105,19 @@ class ItemCartControllerTest {
     @Test
     @DisplayName("Return Error when missing Id")
     void shouldReturnErrorForMissingId() {
-        webTestClient.post()
-                .uri("/cart/items?action=PLUS")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/cart/items?action=PLUS")
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    @DisplayName("Anonymous user redirected to login")
+    void anonymousUser_shouldBeRedirectedToLogin() {
+        webTestClient.get().uri("/cart/items")
+                .exchange()
+                .expectStatus().is3xxRedirection()
+                .expectHeader().valueMatches("Location", ".*/login.*");
     }
 }

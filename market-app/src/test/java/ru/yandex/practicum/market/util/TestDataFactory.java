@@ -4,32 +4,23 @@ import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
 import ru.yandex.practicum.market.enums.Sort;
 import ru.yandex.practicum.market.model.Item;
+import ru.yandex.practicum.market.model.ItemWithCount;
 import ru.yandex.practicum.market.model.Order;
 import ru.yandex.practicum.market.model.OrderItem;
+import ru.yandex.practicum.market.model.User;
 
 import java.util.List;
 
 public class TestDataFactory {
 
-    public static Item createTestItem(Long id, String title, String description, Long price, Integer count) {
+    public static Item createTestItem(Long id, String title, String description, Long price) {
         return Item.builder()
                 .id(id)
                 .title(title)
                 .description(description)
                 .imgPath("/images/test.jpg")
                 .price(price)
-                .count(count)
                 .build();
-    }
-
-    public static Item createTestItemWithId(Long id) {
-        return createTestItem(id, "Test Item " + id, "Description for item " + id, 100L * id, id.intValue());
-    }
-
-    public static List<Item> createTestItemList(int count) {
-        return java.util.stream.IntStream.rangeClosed(1, count)
-                .mapToObj(i -> createTestItemWithId((long) i))
-                .collect(java.util.stream.Collectors.toList());
     }
 
     public static ItemDto createTestItemDto(Long id, String title, Long price, Integer count) {
@@ -40,6 +31,34 @@ public class TestDataFactory {
                 .imgPath("/images/test.jpg")
                 .price(price)
                 .count(count)
+                .build();
+    }
+
+    public static ItemWithCount createTestItemWithCount(Long id, String title, String description,
+                                                        Long price, Integer count) {
+        return ItemWithCount.builder()
+                .id(id)
+                .title(title)
+                .description(description)
+                .imgPath("/images/test.jpg")
+                .price(price)
+                .count(count)
+                .build();
+    }
+
+    public static List<ItemWithCount> createTestItemWithCountList(int count) {
+        return java.util.stream.IntStream.rangeClosed(1, count)
+                .mapToObj(i -> createTestItemWithCount((long) i, "Item " + i,
+                        "Description for item " + i, 100L * i, i))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    public static User createTestUser(Long id, String username, String password, String role) {
+        return User.builder()
+                .id(id)
+                .username(username)
+                .password(password)
+                .role(role)
                 .build();
     }
 
@@ -61,9 +80,10 @@ public class TestDataFactory {
                 .build();
     }
 
-    public static Order createTestOrder(Long id, Long totalSum) {
+    public static Order createTestOrder(Long id, Long userId, Long totalSum) {
         return Order.builder()
                 .id(id)
+                .userId(userId)
                 .totalSum(totalSum)
                 .build();
     }

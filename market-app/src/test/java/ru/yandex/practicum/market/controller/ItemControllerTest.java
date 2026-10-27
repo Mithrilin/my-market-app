@@ -5,14 +5,19 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
+import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
+import ru.yandex.practicum.market.config.SecurityConfig;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListResponse;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
 import ru.yandex.practicum.market.dto.Paging;
 import ru.yandex.practicum.market.enums.Action;
+import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.ItemService;
 import ru.yandex.practicum.market.util.TestDataFactory;
 
@@ -20,9 +25,12 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @WebFluxTest(ItemController.class)
+@Import(SecurityConfig.class)
 class ItemControllerTest {
 
     @Autowired
@@ -31,8 +39,12 @@ class ItemControllerTest {
     @MockitoBean
     private ItemService itemService;
 
+    @MockitoBean
+    private ReactiveUserDetailsService reactiveUserDetailsService;
+
     private ItemDto testItemDto;
     private ItemListResponse testItemListResponse;
+    private CustomUserDetails testUser;
 
     @BeforeEach
     void setUp() {
@@ -41,12 +53,13 @@ class ItemControllerTest {
         Paging paging = new Paging(5, 1, false, true);
         List<List<ItemDto>> items = Collections.singletonList(Collections.singletonList(testItemDto));
         testItemListResponse = new ItemListResponse(items, paging);
+        testUser = new CustomUserDetails(TestDataFactory.createTestUser(1L, "user", "password", "ROLE_USER"));
     }
 
     @Test
     @DisplayName("Successful getting Item Page by ID")
     void getItemById_shouldReturnItemPageById() {
-        when(itemService.getItemById(1L)).thenReturn(Mono.just(testItemDto));
+        when(itemService.getItemById(eq(1L), anyLong())).thenReturn(Mono.just(testItemDto));
 
         webTestClient.get().uri("/items/1")
                 .exchange()
@@ -56,7 +69,7 @@ class ItemControllerTest {
     @Test
     @DisplayName("Successful getting Item List")
     void getItemList_shouldReturnItemList() {
-        when(itemService.getItemList(any(ItemListSearchRequest.class)))
+        when(itemService.getItemList(any(ItemListSearchRequest.class), anyLong()))
                 .thenReturn(Mono.just(testItemListResponse));
 
         webTestClient.get().uri("/items?pageNumber=1&pageSize=5")
@@ -67,7 +80,7 @@ class ItemControllerTest {
     @Test
     @DisplayName("Successful getting Item List with search and sort")
     void getItemList_shouldReturnItemListWithSearchAndSort() {
-        when(itemService.getItemList(any(ItemListSearchRequest.class)))
+        when(itemService.getItemList(any(ItemListSearchRequest.class), anyLong()))
                 .thenReturn(Mono.just(testItemListResponse));
 
         webTestClient.get().uri("/items?search=test&sort=ALPHA&pageNumber=1&pageSize=10")
@@ -78,11 +91,12 @@ class ItemControllerTest {
     @Test
     @DisplayName("Successful change item count on Item Page")
     void changeItemCountFromItemPage_shouldChangeItemCountOnItemPage() {
-        when(itemService.changeItemCountFromItemPage(1L, Action.PLUS))
+        when(itemService.changeItemCountFromItemPage(eq(1L), eq(Action.PLUS), anyLong()))
                 .thenReturn(Mono.just(testItemDto));
 
-        webTestClient.post()
-                .uri("/items/1?action=PLUS")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/items/1?action=PLUS")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -90,10 +104,12 @@ class ItemControllerTest {
     @Test
     @DisplayName("Successful change of the product quantity on the list page (redirect)")
     void shouldChangeItemCountOnItemListPage() {
-        when(itemService.changeItemCountFromItemPage(1L, Action.PLUS))
+        when(itemService.changeItemCountFromItemPage(eq(1L), eq(Action.PLUS), anyLong()))
                 .thenReturn(Mono.just(testItemDto));
 
-        webTestClient.post().uri("/items")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/items")
                 .bodyValue("id=1&action=PLUS&pageNumber=1&pageSize=5")
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .exchange()
@@ -104,14 +120,23 @@ class ItemControllerTest {
     @Test
     @DisplayName("Successful saving of search parameters during redirect")
     void shouldPreserveSearchParamsOnRedirect() {
-        when(itemService.changeItemCountFromItemPage(1L, Action.MINUS))
+        when(itemService.changeItemCountFromItemPage(eq(1L), eq(Action.MINUS), anyLong()))
                 .thenReturn(Mono.just(testItemDto));
 
-        webTestClient.post()
-                .uri("/items?id=1&action=MINUS&search=test&sort=PRICE&pageNumber=2&pageSize=10")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/items?id=1&action=MINUS&search=test&sort=PRICE&pageNumber=2&pageSize=10")
                 .exchange()
                 .expectStatus().isSeeOther()
                 .expectHeader().valueMatches("Location", ".*search=test.*")
                 .expectHeader().valueMatches("Location", ".*sort=PRICE.*");
+    }
+
+    @Test
+    @DisplayName("Anonymous cannot change item count")
+    void anonymousUser_cannotChangeItemCount() {
+        webTestClient.post().uri("/items/1?action=PLUS")
+                .exchange()
+                .expectStatus().isForbidden();
     }
 }
