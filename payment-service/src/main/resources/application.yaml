@@ -1,8 +1,23 @@
 server:
-  port: 8081
+  port: 8082
 
-payment:
-  initial-balance: ${PAYMENT_INITIAL_BALANCE:200000}
+spring:
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/payment-bd}
+    username: ${SPRING_R2DBC_USERNAME:postgres}
+    password: ${SPRING_R2DBC_PASSWORD:postgres}
+    pool:
+      enabled: true
+      initial-size: 5
+      max-size: 20
+  sql:
+    init:
+      mode: always
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/market}
 
 springdoc:
   swagger-ui:
@@ -14,3 +29,5 @@ springdoc:
 logging:
   level:
     org.springframework.web: INFO
+    org.springframework.r2dbc: DEBUG
+    io.r2dbc.postgresql.QUERY: DEBUG

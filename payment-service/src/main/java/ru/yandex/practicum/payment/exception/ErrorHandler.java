@@ -3,6 +3,7 @@ package ru.yandex.practicum.payment.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
@@ -35,6 +36,13 @@ public class ErrorHandler {
         log.error(msg);
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new PaymentErrorResponse().errorMessage(msg)));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public Mono<ResponseEntity<PaymentErrorResponse>> handleAccessDenied(AccessDeniedException e) {
+        log.error("Access denied: {}", e.getMessage());
+        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new PaymentErrorResponse().errorMessage("Access denied")));
     }
 
     @ExceptionHandler(Exception.class)

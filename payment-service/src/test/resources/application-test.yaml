@@ -1,0 +1,10 @@
+spring:
+  r2dbc:
+    url: r2dbc:tc:postgresql:///testdb?TC_IMAGE_TAG=16-alpine
+    username: test
+    password: test
+
+logging:
+  level:
+    org.springframework.r2dbc: DEBUG
+    io.r2dbc.postgresql.QUERY: DEBUG
