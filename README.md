@@ -7,19 +7,21 @@
 ## Структура проекта
 
 ````
-my-market-app/                (parent pom, packaging=pom)  
+my-market-app/                     (parent pom, packaging=pom)
   ├── openapi/
-  │     └── payment-api.yaml  (общая OpenAPI-спецификация payment-service)
-  ├── pom.xml  
-  ├── docker-compose.yaml  
-  ├── market-app/             (основное веб-приложение)  
-  │     ├── pom.xml  
-  │     ├── Dockerfile  
-  │     └── src/...  
-  └── payment-service/        (RESTful-сервис платежей)  
-        ├── pom.xml  
-        ├── Dockerfile  
-        └── src/...  
+  │    └── payment-api.yaml        (общая OpenAPI-спецификация payment-service)
+  ├── keycloak/
+  │    └── realm-export.json       (realm market, клиенты market-app и payment-service)
+  ├── pom.xml
+  ├── docker-compose.yaml
+  ├── market-app/                  (основное веб-приложение)
+  │    ├── pom.xml
+  │    ├── Dockerfile
+  │    └── src/...
+  └── payment-service/             (RESTful-сервис платежей)
+       ├── pom.xml
+       ├── Dockerfile
+       └── src/...
 ````
 
 ---
@@ -34,6 +36,7 @@ my-market-app/                (parent pom, packaging=pom)
 - **Lombok** — сокращение шаблонного кода
 - **Maven** — система сборки (мультимодульная)
 - **Docker / Docker Compose** — контейнеризация и локальный запуск
+- **Keycloak** — OAuth2-провайдер (realm `market`)
 
 ### market-app
 - **Spring Data R2DBC** — реактивный доступ к PostgreSQL
@@ -42,23 +45,26 @@ my-market-app/                (parent pom, packaging=pom)
 - **Thymeleaf (reactive)** — шаблонизатор HTML
 - **Spring Cache + Spring Data Redis (reactive)** — кеш товаров в Redis
 - **Redis** — кеш карточек, списков и корзины
+- **Spring Security + OAuth2 Client** — форма логина для пользователей и `client_credentials` для вызова payment-service
 - **MapStruct** — маппинг объектов
 - **openapi-generator-maven-plugin** — генерация реактивного клиента payment-service из `openapi/payment-api.yaml`
 
 ### payment-service
 - **Spring WebFlux** — реактивные REST-эндпоинты
 - **Spring Validation** — валидация `PaymentRequest`
+- **Spring Data R2DBC + PostgreSQL** — хранение балансов пользователей (`accounts`)
+- **Spring Security OAuth2 Resource Server (JWT)** — проверка JWT от Keycloak, доступ по роли `SERVICE` в `resource_access.market-app.roles`
 - **openapi-generator-maven-plugin** — генерация REST-интерфейса и DTO из `openapi/payment-api.yaml`
-- **springdoc-openapi (Swagger UI)** — просмотр спецификации: `http://localhost:8081/swagger-ui.html`
-- **In-memory баланс** (`AtomicLong`, инициализируется из конфига) — без БД
+- **springdoc-openapi (Swagger UI)** — просмотр спецификации: `http://localhost:8082/swagger-ui.html`
 - JSON-обмен
 
 ### Тесты
 - **Reactor Test** — `StepVerifier` для реактивных потоков
-- **Testcontainers** — интеграционные тесты с PostgreSQL (в `market-app`)
+- **Testcontainers** — интеграционные тесты с PostgreSQL (в обоих модулях, через `r2dbc:tc:` URL и `application-test.yaml`)
 - **Mockito** — unit-тесты сервисов
 - **`@WebFluxTest` / `WebTestClient`** — тесты контроллеров
 - **`@DataR2dbcTest`** — тесты репозиториев
+- **`@SpringBootTest`** — тесты контроллеров payment-service с полным контекстом (нужен из-за маппингов на сгенерированном интерфейсе `PaymentsApi`)
 
 ---
 
@@ -83,7 +89,7 @@ my-market-app/                (parent pom, packaging=pom)
 #### Оформление заказов
 - Платёж через payment-service (до сохранения позиций заказа)
 - При успехе — создание заказа, обнуление корзины, переход на страницу заказа
-- При отказе/недоступности платежа — заказ **не создаётся**, показывается ошибка (`400`/`500` через `ErrorHandler`)
+- При отказе/недоступности платежа — заказ **не создаётся**, показывается ошибка (`400`/`503` через `ErrorHandler`)
 - Просмотр списка заказов и детальной страницы заказа
 
 #### Кеширование в Redis (`market-app`)
@@ -96,24 +102,28 @@ my-market-app/                (parent pom, packaging=pom)
   - сохранении нового заказа (`OrderPersistenceService.saveNewOrder`)
 - Сериализация — `GenericJackson2JsonRedisSerializer`
 - `null`-значения не кешируются (`disableCachingNullValues`)
-- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service, 
-поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
+- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service,
+  поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
 
 ### Сервис платежей (`payment-service`)
 - `GET /api/payments/balance` — текущий баланс
 - `POST /api/payments` — списание суммы по заказу
-- Баланс изменяемый: `AtomicLong` с CAS-обновлением (безопасно при конкурентных запросах)
-- Начальный баланс задаётся через `payment.initial-balance` (env `PAYMENT_INITIAL_BALANCE`)
+- Баланс хранится в PostgreSQL (таблица `accounts`), списание — в транзакции с `SELECT ... FOR UPDATE`
+- Начальные балансы задаются через `data.sql` (для пользователей 1 и 2 — по 200000)
 - При недостатке средств — `400 Bad Request` с JSON-ошибкой
-- Валидация `amount > 0`
+- Валидация `amount > 0`, `userId > 0`
+- Доступ только с JWT, содержащим роль `SERVICE` в claim `resource_access.market-app.roles`
 
 ### Обработка ошибок
 - **`market-app`**: `@ControllerAdvice` (`ErrorHandler`), рендерит `error.html`
   - `404` — `NotFoundException`
   - `400` — `BadRequestException`, `ConstraintViolationException`, `WebExchangeBindException`, `MissingRequestValueException`, `ServerWebInputException`
+  - `403` — `ForbiddenException`
+  - `503` — `PaymentServiceException` (недоступность payment-service)
   - `500` — прочие исключения
 - **`payment-service`**: `@RestControllerAdvice` (`ErrorHandler`), JSON-ошибки
   - `400` — `InsufficientFundsException`, `WebExchangeBindException`
+  - `403` — `AccessDeniedException`
   - `500` — прочие исключения
 
 ---
@@ -134,14 +144,31 @@ my-market-app/                (parent pom, packaging=pom)
 | GET | `/orders/{id}` | Заказ по ID | `id`, `newOrder` (boolean, default false) |
 | POST | `/buy` | Оформить заказ | — |
 
+Доступ: `GET /`, `/items`, `/items/{id}` — публично; остальное — после логина (`/login`).
+
 ### payment-service
 
-| Метод | Endpoint | Описание | Тело / ответ                                                                                                                                |
-|-------|----------|----------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| GET | `/api/payments/balance` | Баланс | → `{"balance": 200000}`                                                                                                                     |
-| POST | `/api/payments` | Списание | `{"amount": 850}` → `{"amount":850,"newBalance":9150,"status":"SUCCESS"}`; при недостатке — `400` с `{"errorMessage":"...","balance":null}` |
-Swagger UI: `http://localhost:8081/swagger-ui.html`  
-Спецификация: `http://localhost:8081/openapi/payment-api.yaml`
+| Метод | Endpoint | Описание | Тело / ответ |
+|-------|----------|----------|--------------|
+| GET | `/api/payments/balance?userId=1` | Баланс | → `{"balance": 200000}` |
+| POST | `/api/payments` | Списание | `{"userId":1,"amount":850}` → `{"userId":1,"amount":850,"newBalance":199150,"status":"SUCCESS"}`; при недостатке — `400` с `{"errorMessage":"...","balance":null}` |
+
+Оба эндпоинта требуют JWT с ролью `SERVICE` (OAuth2 Resource Server, Keycloak realm `market`).  
+Swagger UI: `http://localhost:8082/swagger-ui.html`  
+Спецификация: `http://localhost:8082/openapi/payment-api.yaml`
+
+---
+
+## Аутентификация и авторизация
+
+- **Keycloak** (realm `market`) импортируется из `keycloak/realm-export.json` при старте контейнера.
+- **`market-app`**:
+  - пользователи логинятся через форму (`/login`), данные — в таблице `users` (`user`/`admin`, пароль `password`, BCrypt);
+  - для вызова `payment-service` используется OAuth2-клиент `market-app` (confidential, `client_credentials`, secret `market-secret`), у service account есть роль `SERVICE`.
+- **`payment-service`**:
+  - настроен как OAuth2 Resource Server (`issuer-uri` Keycloak);
+  - `JwtGrantedAuthoritiesConverter` читает роль из claim `resource_access.market-app.roles`, поэтому в токене от `market-app` приходит authority `SERVICE`;
+  - `@PreAuthorize("hasAuthority('SERVICE')")` на методах `PaymentController`.
 
 ---
 
@@ -151,7 +178,6 @@ Swagger UI: `http://localhost:8081/swagger-ui.html`
 - Java 21+
 - Maven 3.8+
 - Docker и Docker Compose
-- (опционально, для локального запуска без Docker) PostgreSQL 16+, Redis 7+
 
 ### Запуск через Docker Compose (рекомендуется)
 
@@ -165,10 +191,12 @@ docker compose up --build
 ```
 3. **Сервисы будут доступны:**
 ```bash
-- витрина: http://localhost:8080
-- payment-service: http://localhost:8081
-- PostgreSQL: localhost:5432 (market-bd)
-- Redis: localhost:6379
+- витрина (market-app): http://localhost:8081
+- payment-service:       http://localhost:8082
+- Keycloak:              http://localhost:8080 (admin/admin)
+- PostgreSQL market-bd:  localhost:5432
+- PostgreSQL payment-bd: localhost:5433
+- Redis:                 localhost:6379
 ```
 4. **Для остановки приложения:**
 ```bash
@@ -183,45 +211,57 @@ market-app:
 - SPRING_R2DBC_PASSWORD=postgres
 - SPRING_DATA_REDIS_HOST=redis
 - SPRING_DATA_REDIS_PORT=6379
-- PAYMENT_SERVICE_URL=http://payment-service:8081
+- PAYMENT_SERVICE_URL=http://payment-service:8082
 - PAYMENT_SERVICE_TIMEOUT_MS=2000
+- SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_MARKET_APP_CLIENT_ID=market-app
+- SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_MARKET_APP_CLIENT_SECRET=market-secret
+- SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_MARKET_KEYCLOAK_TOKEN_URI=http://keycloak:8080/realms/market/protocol/openid-connect/token
 ```
 payment-service:
 ```bash
-- PAYMENT_INITIAL_BALANCE=200000
+- SPRING_R2DBC_URL=r2dbc:postgresql://payment-bd:5432/payment-bd
+- SPRING_R2DBC_USERNAME=postgres
+- SPRING_R2DBC_PASSWORD=postgres
+- KEYCLOAK_ISSUER_URI=http://keycloak:8080/realms/market
 ```
 
 ### Локальный запуск
 
 1. **PostgreSQL:**  
-Создайте базу данных:
+   Создайте базы данных:
 ```bash
-CREATE DATABASE market-bd;
+CREATE DATABASE "market-bd";
+CREATE DATABASE "payment-bd";
 ```
 2. **Redis**  
    запустить на
 ```bash
 localhost:6379
 ```
-3. **payment-service:**
+3. **Keycloak:**  
+   проще всего поднять из compose (порт 8080) — он импортирует realm `market`:
+```bash
+docker compose up keycloak
+```
+4. **payment-service** (по умолчанию слушает 8082, ждёт PostgreSQL на `localhost:5432/payment-bd` и Keycloak на `localhost:8080`):
 ```bash
 mvn -pl payment-service spring-boot:run
 ```
-(слушает 8081, начальный баланс payment.initial-balance, по умолчанию 200000)
-4. **market-app:**
+> Если `payment-bd` поднят из compose, снаружи он на `localhost:5433` — переопределите `SPRING_R2DBC_URL=r2dbc:postgresql://localhost:5433/payment-bd`.
+5. **market-app** (по умолчанию слушает 8081, ждёт PostgreSQL на `localhost:5432/market-bd`, Redis на `localhost:6379`, payment-service на `localhost:8082`, Keycloak на `localhost:8080`):
 ```bash
 mvn -pl market-app spring-boot:run
 ```
-(слушает 8080, ждёт PostgreSQL на localhost:5432, Redis на localhost:6379, payment-service на localhost:8081)
 
 ## Особенности реализации
 
 ### Оплата
 - `OrderServiceImpl.createOrder()` (без `@Transactional`):
   1. читает корзину, считает сумму;
-  2. **вызывает `payment-service`** (`POST /api/payments` с `{amount}`) — вне транзакции;
+  2. **вызывает `payment-service`** (`POST /api/payments` с `{userId, amount}`) — вне транзакции;
   3. при успехе — передаёт управление `OrderPersistenceService.saveNewOrder(...)`, где в **короткой** `@Transactional` сохраняются `Order`, `order_items` и обнуляется корзина;
   4. при отказе (`4xx` от payment-service) — `BadRequestException` (HTTP `400`), при недоступности (`5xx`/сеть) — `PaymentServiceException` (HTTP `503`). В обоих случаях в БД ничего не пишется.
+- Списание в `payment-service` — отдельная транзакция (`SELECT ... FOR UPDATE` + `UPDATE balance`), компенсации при сбое сохранения заказа в `market-app` нет.
 
 ### Кеш и `count`
 - **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id`
@@ -240,39 +280,18 @@ mvn -pl market-app spring-boot:run
 - При недоступности payment-service кнопка «Купить» на странице корзины блокируется, показывается сообщение.
 
 ### Особенности OpenAPI-клиента
-- Сгенерированный `ApiClient` (`library=webclient`) строит URI от **своего** поля `basePath`, а не от `WebClient.baseUrl`. Поэтому в `PaymentClientImpl` явно вызывается `apiClient.setBasePath(properties.baseUrl())`, а `WebClient` конфигурируется только транспортом (таймауты, коннектор).
+- Сгенерированный `ApiClient` (`library=webclient`) строит URI от **своего** поля `basePath`, а не от `WebClient.baseUrl`. Поэтому в `PaymentClientImpl` явно вызывается `apiClient.setBasePath(properties.baseUrl())`, а `WebClient` конфигурируется только транспортом (таймауты, коннектор, OAuth2-фильтр).
 - `baseUrl` проверяется на `null`/blank на старте — если переменная `PAYMENT_SERVICE_URL` не задана, приложение падает с понятным сообщением.
-- Ошибки клиента разделены: `4xx` → `BadRequestException` (`400`), `5xx`/сеть → `PaymentServiceException` (`503`).
+- Ошибки клиента разделены: `4xx` → `BadRequestException` (`400`), `401/403` и `5xx`/сеть → `PaymentServiceException` (`503`).
 
 ## Структура базы данных
 
-### Таблица `items` (Товары)
-Хранит информацию о товарах в каталоге магазина.
+### `market-app` (БД `market-bd`)
+- `users` — пользователи формы логина (`id`, `username`, `password`, `role`)
+- `items` — товары каталога (`id`, `title`, `description`, `img_path`, `price`)
+- `cart_items` — корзина (`user_id`, `item_id`, `count`, PK `(user_id, item_id)`)
+- `orders` — заказы (`id`, `user_id`, `total_sum`)
+- `order_items` — позиции заказа (`id`, `order_id`, `title`, `price`, `count`)
 
-| Колонка | Тип | Ограничения | Описание |
-|---------|-----|-------------|----------|
-| `id` | BIGINT | PRIMARY KEY, AUTO_INCREMENT | Уникальный идентификатор товара |
-| `title` | VARCHAR | NOT NULL | Название товара |
-| `description` | VARCHAR | - | Описание товара |
-| `img_path` | VARCHAR | - | Путь к изображению товара |
-| `price` | BIGINT | NOT NULL | Цена товара |
-| `count` | INTEGER | DEFAULT 0 | Количество товара в корзине |
-
-### Таблица `orders` (Заказы)
-Хранит информацию о заказах.
-
-| Колонка | Тип | Ограничения | Описание |
-|---------|-----|-------------|----------|
-| `id` | BIGINT | PRIMARY KEY, AUTO_INCREMENT | Уникальный идентификатор заказа |
-| `total_sum` | BIGINT | NOT NULL | Общая сумма заказа |
-
-### Таблица `order_items` (Товары в заказе)
-Хранит информацию о товарах в момент заказа.
-
-| Колонка | Тип | Ограничения | Описание              |
-|---------|-----|-------------|-----------------------|
-| `id` | BIGINT | PRIMARY KEY, AUTO_INCREMENT | Уникальный идентификатор |
-| `order_id` | BIGINT | FOREIGN KEY → orders(id) | Идентификатор заказа  |
-| `title` | VARCHAR | NOT NULL | Название товара       |
-| `price` | BIGINT | NOT NULL | Цена товара   |
-| `count` | INTEGER | DEFAULT 0 | Количество товара в заказе |
+### `payment-service` (БД `payment-bd`)
+- `accounts` — балансы пользователей (`user_id BIGINT PRIMARY KEY`, `balance BIGINT NOT NULL`)
