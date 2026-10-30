@@ -1,19 +1,19 @@
 package ru.yandex.practicum.market.controller;
 
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.reactive.result.view.Rendering;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.dto.CartPageResponse;
-import ru.yandex.practicum.market.enums.Action;
+import ru.yandex.practicum.market.dto.ItemChangeCountRequest;
 import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.ItemService;
 
@@ -34,12 +34,10 @@ public class ItemCartController {
     }
 
     @PostMapping
-    public Mono<Rendering> changeItemCountFromCartPage(@RequestParam @Positive(message = "Id must be greater than 0")
-                                                       Long id,
-                                                       @RequestParam Action action,
+    public Mono<Rendering> changeItemCountFromCartPage(@Valid @ModelAttribute ItemChangeCountRequest req,
                                                        @AuthenticationPrincipal CustomUserDetails user) {
-        log.info("Changing count of item with ID {} from cart for user {}.", id, user.getId());
-        return itemService.changeItemCountFromCartPage(id, action, user.getId())
+        log.info("Changing count of item with ID {} from cart for user {}.", req.id(), user.getId());
+        return itemService.changeItemCountFromCartPage(req.id(), req.action(), user.getId())
                 .map(this::toCartView);
     }
 

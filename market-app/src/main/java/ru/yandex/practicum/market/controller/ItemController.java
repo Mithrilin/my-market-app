@@ -11,13 +11,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.reactive.result.view.Rendering;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.dto.ItemChangeCountRequest;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
-import ru.yandex.practicum.market.enums.Action;
 import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.ItemService;
 
@@ -57,10 +55,10 @@ public class ItemController {
     @PostMapping("/items/{id}")
     public Mono<Rendering> changeItemCountFromItemPage(@PathVariable @Positive(message = "Id must be greater than 0")
                                                        Long id,
-                                                       @RequestParam Action action,
+                                                       @Valid @ModelAttribute ItemChangeCountRequest req,
                                                        @AuthenticationPrincipal CustomUserDetails user) {
         log.info("Changing count of item with ID {}.", id);
-        return itemService.changeItemCountFromItemPage(id, action, user.getId())
+        return itemService.changeItemCountFromItemPage(id, req.action(), user.getId())
                 .map(item -> Rendering.view("item")
                         .modelAttribute("item", item)
                         .build());

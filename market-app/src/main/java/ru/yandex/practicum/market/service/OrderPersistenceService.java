@@ -25,7 +25,7 @@ public class OrderPersistenceService {
     private final CartItemRepository cartItemRepository;
 
     @Transactional
-    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
+    @CacheEvict(cacheNames = {"item", "itemList", "cart"}, allEntries = true)
     public Mono<Order> saveNewOrder(List<ItemWithCount> items, long totalSum, Long userId) {
         Order order = Order.builder().userId(userId).totalSum(totalSum).build();
 

@@ -11,6 +11,7 @@ import ru.yandex.practicum.market.enums.Sort;
 public record ItemChangeCountRequest(
 
         @NotNull(message = "Id cannot be null.")
+        @Positive(message = "Id must be greater than 0")
         Long id,
 
         @Size(max = 100, message = "Search query cannot exceed 100 characters")

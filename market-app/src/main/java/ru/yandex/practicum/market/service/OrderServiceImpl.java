@@ -61,13 +61,17 @@ public class OrderServiceImpl implements OrderService {
         Mono<OrderDto> orderDtoMono = itemRepository.findCartItemsByUserId(userId, MIN_COUNT_ITEMS_IN_CART)
                 .collectList()
                 .flatMap(items -> {
+                    if (items.isEmpty()) {
+                        return Mono.error(new BadRequestException(
+                                "Корзина пуста, невозможно оформить заказ"));
+                    }
+
                     long totalSum = items.stream()
                             .mapToLong(i -> i.getPrice() * i.getCount())
                             .sum();
 
-                    Mono<Void> paymentStep = items.isEmpty()
-                            ? Mono.empty()
-                            : paymentClient.pay(new PaymentRequest().userId(userId).amount(totalSum))
+                    Mono<Void> paymentStep = paymentClient
+                            .pay(new PaymentRequest().userId(userId).amount(totalSum))
                             .onErrorMap(BadRequestException.class,
                                     e -> new BadRequestException("Оплата не прошла: " + e.getMessage()))
                             .then();

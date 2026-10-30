@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.client.PaymentClient;
-import ru.yandex.practicum.market.dto.CartDto;
 import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListResponse;
@@ -41,6 +40,7 @@ public class ItemServiceImpl implements ItemService {
     private final CartItemRepository cartItemRepository;
     private final ItemMapper itemMapper;
     private final PaymentClient paymentClient;
+    private final CartCacheService cartCacheService;
 
     @Override
     @Cacheable(cacheNames = "item", key = "#id + ':' + #userId")
@@ -84,11 +84,8 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
+    @CacheEvict(cacheNames = {"item", "itemList", "cart"}, allEntries = true)
     public Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action, Long userId) {
-        if (action == Action.DELETE) {
-            return Mono.error(new BadRequestException("Action cannot be equal DELETE."));
-        }
         Mono<ItemDto> itemDtoMono = changeItemCount(itemId, action, userId)
                 .flatMap(item -> itemRepository.findByIdWithCount(userId, itemId))
                 .map(itemMapper::toItemDto);
@@ -98,7 +95,7 @@ public class ItemServiceImpl implements ItemService {
 
     @Override
     public Mono<CartPageResponse> getItemCartList(Long userId) {
-        Mono<CartPageResponse> cartPageResponseMono = buildCartResponse(userId)
+        Mono<CartPageResponse> cartPageResponseMono = cartCacheService.getCart(userId)
                 .flatMap(cart -> resolvePaymentAvailability(cart.total(), userId)
                         .map(payment -> new CartPageResponse(cart, payment)));
         log.info("Cart page has been returned for user {}", userId);
@@ -106,7 +103,7 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
+    @CacheEvict(cacheNames = {"item", "itemList", "cart"}, allEntries = true)
     public Mono<CartPageResponse> changeItemCountFromCartPage(Long itemId, Action action, Long userId) {
         Mono<CartPageResponse> cartPageResponseMono =
                 changeItemCount(itemId, action, userId).then(getItemCartList(userId));
@@ -153,15 +150,11 @@ public class ItemServiceImpl implements ItemService {
                         return Mono.error(new BadRequestException("Count cannot be less than 0"));
                     }
 
-                    int newCount = switch (action) {
-                        case PLUS -> currentCount + 1;
-                        case MINUS -> currentCount - 1;
-                        case DELETE -> 0;
-                    };
-
                     if (action == Action.DELETE) {
                         return cartItemRepository.delete(userId, itemId).thenReturn(item);
                     }
+
+                    int newCount = action == Action.PLUS ? currentCount + 1 : currentCount - 1;
                     return cartItemRepository.upsert(userId, itemId, newCount).thenReturn(item);
                 })
         );
@@ -171,18 +164,6 @@ public class ItemServiceImpl implements ItemService {
         return itemRepository.findById(itemId)
                 .switchIfEmpty(Mono.error(
                         new NotFoundException(String.format("Item with ID = %d not found", itemId))));
-    }
-
-    private Mono<CartDto> buildCartResponse(Long userId) {
-        return itemRepository.findCartItemsByUserId(userId, MIN_COUNT_ITEMS_IN_CART)
-                .collectList()
-                .map(items -> {
-                    long total = items.stream()
-                            .mapToLong(i -> i.getPrice() * i.getCount())
-                            .sum();
-                    List<ItemDto> dtos = itemMapper.toItemDtoList(items);
-                    return new CartDto(dtos, total);
-                });
     }
 
     private Mono<PaymentStatusDto> resolvePaymentAvailability(long total, Long userId) {

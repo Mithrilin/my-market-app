@@ -35,6 +35,7 @@ public class SecurityConfig {
                         .logoutHandler(logoutHandler)
                 )
                 .csrf(withDefaults())
+                .anonymous(anonymous -> {})
                 .build();
     }
 }
