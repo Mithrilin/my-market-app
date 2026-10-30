@@ -14,6 +14,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.config.SecurityConfig;
 import ru.yandex.practicum.market.dto.OrderDto;
+import ru.yandex.practicum.market.exception.BadRequestException;
+import ru.yandex.practicum.market.exception.ErrorHandler;
 import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.OrderService;
 import ru.yandex.practicum.market.util.TestDataFactory;
@@ -24,7 +26,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 @WebFluxTest(OrderController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, ErrorHandler.class})
 class OrderControllerTest {
 
     @Autowired
@@ -93,6 +95,19 @@ class OrderControllerTest {
                 .exchange()
                 .expectStatus().isSeeOther()
                 .expectHeader().valueEquals("Location", "/orders/1?newOrder=true");
+    }
+
+    @Test
+    @DisplayName("POST /buy returns 400 when cart is empty")
+    void createOrder_shouldReturnBadRequestWhenCartIsEmpty() {
+        when(orderService.createOrder(anyLong()))
+                .thenReturn(Mono.error(new BadRequestException("Корзина пуста, невозможно оформить заказ")));
+
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/buy")
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 
     @Test

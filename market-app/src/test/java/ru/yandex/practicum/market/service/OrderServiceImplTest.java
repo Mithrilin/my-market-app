@@ -268,28 +268,18 @@ class OrderServiceImplTest {
     }
 
     @Test
-    @DisplayName("Creating Order when cart is empty — payment is skipped")
-    void createOrder_shouldWorkWhenCartIsEmpty() {
-        Order emptyOrder = TestDataFactory.createTestOrder(1L, USER_ID, 0L);
-        OrderDto emptyOrderDto = OrderDto.builder()
-                .id(1L)
-                .items(Collections.emptyList())
-                .totalSum(0L)
-                .build();
-
+    @DisplayName("Creating Order with empty cart fails with BadRequestException, no payment, no DB write")
+    void createOrder_shouldFailWhenCartIsEmpty() {
         when(itemRepository.findCartItemsByUserId(USER_ID, 1)).thenReturn(Flux.empty());
-        when(orderPersistenceService.saveNewOrder(anyList(), eq(0L), eq(USER_ID)))
-                .thenReturn(Mono.just(emptyOrder));
-        when(orderMapper.toOrderDto(emptyOrder)).thenReturn(emptyOrderDto);
 
         StepVerifier.create(orderService.createOrder(USER_ID))
-                .assertNext(dto -> {
-                    assertThat(dto.id()).isEqualTo(1L);
-                    assertThat(dto.totalSum()).isEqualTo(0L);
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(BadRequestException.class);
+                    assertThat(e.getMessage()).contains("Корзина пуста");
                 })
-                .verifyComplete();
+                .verify();
 
         verify(paymentClient, never()).pay(any(PaymentRequest.class));
-        verify(orderPersistenceService).saveNewOrder(anyList(), eq(0L), eq(USER_ID));
+        verify(orderPersistenceService, never()).saveNewOrder(anyList(), any(Long.class), any(Long.class));
     }
 }

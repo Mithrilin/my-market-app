@@ -7,12 +7,12 @@ import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWeb
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
+import ru.yandex.practicum.payment.config.NestedResourceAccessRolesConverter;
 import ru.yandex.practicum.payment.config.SecurityConfig;
 import ru.yandex.practicum.payment.dto.generated.BalanceResponse;
 import ru.yandex.practicum.payment.dto.generated.PaymentRequest;
@@ -45,7 +45,7 @@ class PaymentControllerTest {
         return SecurityMockServerConfigurers.mockJwt()
                 .jwt(jwt -> jwt.claim("resource_access",
                         Map.of("market-app", Map.of("roles", List.of("SERVICE")))))
-                .authorities(new SimpleGrantedAuthority("SERVICE"));
+                .authorities(new NestedResourceAccessRolesConverter());
     }
 
     private SecurityMockServerConfigurers.JwtMutator mockJwtWithoutServiceRole() {

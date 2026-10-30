@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import ru.yandex.practicum.market.client.PaymentClient;
 import ru.yandex.practicum.market.client.generated.dto.BalanceResponse;
+import ru.yandex.practicum.market.dto.CartDto;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListSearchRequest;
 import ru.yandex.practicum.market.enums.Action;
@@ -30,6 +31,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +54,9 @@ class ItemServiceImplTest {
 
     @Mock
     private PaymentClient paymentClient;
+
+    @Mock
+    private CartCacheService cartCacheService;
 
     @InjectMocks
     private ItemServiceImpl itemService;
@@ -308,31 +313,35 @@ class ItemServiceImplTest {
     }
 
     @Test
-    @DisplayName("DELETE action on item page — BadRequestException")
-    void changeItemCountFromItemPage_shouldThrowBadRequestExceptionWhenDeleteActionOnItemPage() {
-        StepVerifier.create(itemService.changeItemCountFromItemPage(1L, Action.DELETE, USER_ID))
-                .expectErrorSatisfies(e -> {
-                    assertThat(e).isInstanceOf(BadRequestException.class);
-                    assertThat(e.getMessage()).contains("Action cannot be equal DELETE");
-                })
-                .verify();
+    @DisplayName("DELETE action on item page removes item from cart and returns count 0")
+    void changeItemCountFromItemPage_shouldRemoveItemOnDelete() {
+        ItemWithCount itemWithZeroCount =
+                TestDataFactory.createTestItemWithCount(1L, "Test Item", "Description", 100L, 0);
+        ItemDto expectedDto = TestDataFactory.createTestItemDto(1L, "Test Item", 100L, 0);
 
-        verifyNoInteractions(itemRepository);
+        when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
+        when(cartItemRepository.findCount(USER_ID, 1L)).thenReturn(Mono.just(5));
+        when(cartItemRepository.delete(USER_ID, 1L)).thenReturn(Mono.empty());
+        when(itemRepository.findByIdWithCount(USER_ID, 1L)).thenReturn(Mono.just(itemWithZeroCount));
+        when(itemMapper.toItemDto(itemWithZeroCount)).thenReturn(expectedDto);
+
+        StepVerifier.create(itemService.changeItemCountFromItemPage(1L, Action.DELETE, USER_ID))
+                .assertNext(dto -> assertThat(dto.count()).isZero())
+                .verifyComplete();
+
+        verify(cartItemRepository).delete(USER_ID, 1L);
+        verify(cartItemRepository, never()).upsert(anyLong(), anyLong(), anyInt());
     }
 
     @Test
-    @DisplayName("Successful getting cart items with available payment")
+    @DisplayName("Successful getting cart items with available payment (via cache service)")
     void getItemCartList_shouldReturnCartItemsWithAvailablePayment() {
-        List<ItemWithCount> itemsWithCount = List.of(
-                TestDataFactory.createTestItemWithCount(1L, "Item 1", "Desc 1", 100L, 2),
-                TestDataFactory.createTestItemWithCount(2L, "Item 2", "Desc 2", 200L, 3));
         List<ItemDto> dtoList = List.of(
                 TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2),
                 TestDataFactory.createTestItemDto(2L, "Item 2", 200L, 3));
+        CartDto cart = new CartDto(dtoList, 800L);
 
-        when(itemRepository.findCartItemsByUserId(USER_ID, ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(Flux.fromIterable(itemsWithCount));
-        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
+        when(cartCacheService.getCart(USER_ID)).thenReturn(Mono.just(cart));
         when(paymentClient.getBalance(USER_ID)).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.getItemCartList(USER_ID))
@@ -343,19 +352,18 @@ class ItemServiceImplTest {
                     assertThat(r.payment().message()).isNull();
                 })
                 .verifyComplete();
+
+        verify(cartCacheService).getCart(USER_ID);
+        verify(paymentClient).getBalance(USER_ID);
     }
 
     @Test
-    @DisplayName("Cart page: insufficient funds on balance")
+    @DisplayName("Cart page: insufficient funds on balance (via cache service)")
     void getItemCartList_shouldMarkPaymentUnavailableWhenInsufficientFunds() {
-        List<ItemWithCount> itemsWithCount = List.of(
-                TestDataFactory.createTestItemWithCount(1L, "Item 1", "Desc 1", 100L, 2));
-        List<ItemDto> dtoList = List.of(
-                TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2));
+        List<ItemDto> dtoList = List.of(TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2));
+        CartDto cart = new CartDto(dtoList, 200L);
 
-        when(itemRepository.findCartItemsByUserId(USER_ID, ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(Flux.fromIterable(itemsWithCount));
-        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
+        when(cartCacheService.getCart(USER_ID)).thenReturn(Mono.just(cart));
         when(paymentClient.getBalance(USER_ID)).thenReturn(Mono.just(new BalanceResponse().balance(50L)));
 
         StepVerifier.create(itemService.getItemCartList(USER_ID))
@@ -367,16 +375,12 @@ class ItemServiceImplTest {
     }
 
     @Test
-    @DisplayName("Cart page: payment service unavailable")
+    @DisplayName("Cart page: payment service unavailable (via cache service)")
     void getItemCartList_shouldMarkPaymentUnavailableWhenServiceDown() {
-        List<ItemWithCount> itemsWithCount = List.of(
-                TestDataFactory.createTestItemWithCount(1L, "Item 1", "Desc 1", 100L, 2));
-        List<ItemDto> dtoList = List.of(
-                TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2));
+        List<ItemDto> dtoList = List.of(TestDataFactory.createTestItemDto(1L, "Item 1", 100L, 2));
+        CartDto cart = new CartDto(dtoList, 200L);
 
-        when(itemRepository.findCartItemsByUserId(USER_ID, ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(Flux.fromIterable(itemsWithCount));
-        when(itemMapper.toItemDtoList(itemsWithCount)).thenReturn(dtoList);
+        when(cartCacheService.getCart(USER_ID)).thenReturn(Mono.just(cart));
         when(paymentClient.getBalance(USER_ID)).thenReturn(Mono.error(new RuntimeException("Connection refused")));
 
         StepVerifier.create(itemService.getItemCartList(USER_ID))
@@ -388,11 +392,9 @@ class ItemServiceImplTest {
     }
 
     @Test
-    @DisplayName("Cart returns empty list when no items")
+    @DisplayName("Cart returns empty list when no items (via cache service)")
     void getItemCartList_shouldReturnEmptyCart() {
-        when(itemRepository.findCartItemsByUserId(USER_ID, ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(Flux.empty());
-        when(itemMapper.toItemDtoList(List.of())).thenReturn(List.of());
+        when(cartCacheService.getCart(USER_ID)).thenReturn(Mono.just(new CartDto(List.of(), 0L)));
         when(paymentClient.getBalance(USER_ID)).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.getItemCartList(USER_ID))
@@ -405,19 +407,15 @@ class ItemServiceImplTest {
     }
 
     @Test
-    @DisplayName("Successful change item count in cart")
+    @DisplayName("Successful change item count in cart (uses cache service after change)")
     void changeItemCountFromCartPage_shouldChangeItemCountInCart() {
-        ItemWithCount updatedItem = TestDataFactory.createTestItemWithCount(1L, "Test Item", "Description", 100L, 6);
         ItemDto updatedDto = TestDataFactory.createTestItemDto(1L, "Test Item", 100L, 6);
-        List<ItemWithCount> cartItems = List.of(updatedItem);
-        List<ItemDto> dtoList = List.of(updatedDto);
+        CartDto cart = new CartDto(List.of(updatedDto), 600L);
 
         when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
         when(cartItemRepository.findCount(USER_ID, 1L)).thenReturn(Mono.just(5));
         when(cartItemRepository.upsert(USER_ID, 1L, 6)).thenReturn(Mono.empty());
-        when(itemRepository.findCartItemsByUserId(USER_ID, ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(Flux.fromIterable(cartItems));
-        when(itemMapper.toItemDtoList(cartItems)).thenReturn(dtoList);
+        when(cartCacheService.getCart(USER_ID)).thenReturn(Mono.just(cart));
         when(paymentClient.getBalance(USER_ID)).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.PLUS, USER_ID))
@@ -426,17 +424,17 @@ class ItemServiceImplTest {
                     assertThat(r.cart().itemDtoList().getFirst().count()).isEqualTo(6);
                 })
                 .verifyComplete();
+
+        verify(cartItemRepository).upsert(USER_ID, 1L, 6);
     }
 
     @Test
-    @DisplayName("DELETE action from cart sets count to 0 and removes from cart")
+    @DisplayName("DELETE action from cart removes item and returns empty cart")
     void changeItemCountFromCartPage_shouldRemoveItemOnDelete() {
         when(itemRepository.findById(1L)).thenReturn(Mono.just(testItem));
         when(cartItemRepository.findCount(USER_ID, 1L)).thenReturn(Mono.just(5));
         when(cartItemRepository.delete(USER_ID, 1L)).thenReturn(Mono.empty());
-        when(itemRepository.findCartItemsByUserId(USER_ID, ItemServiceImpl.MIN_COUNT_ITEMS_IN_CART))
-                .thenReturn(Flux.empty());
-        when(itemMapper.toItemDtoList(List.of())).thenReturn(List.of());
+        when(cartCacheService.getCart(USER_ID)).thenReturn(Mono.just(new CartDto(List.of(), 0L)));
         when(paymentClient.getBalance(USER_ID)).thenReturn(Mono.just(new BalanceResponse().balance(1000L)));
 
         StepVerifier.create(itemService.changeItemCountFromCartPage(1L, Action.DELETE, USER_ID))

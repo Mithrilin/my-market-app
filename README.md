@@ -60,11 +60,13 @@ my-market-app/                     (parent pom, packaging=pom)
 
 ### Тесты
 - **Reactor Test** — `StepVerifier` для реактивных потоков
-- **Testcontainers** — интеграционные тесты с PostgreSQL (в обоих модулях, через `r2dbc:tc:` URL и `application-test.yaml`)
+- **Testcontainers** — интеграционные тесты с PostgreSQL (в обоих модулях, через `r2dbc:tc:` URL и `application-test.yaml`); 
+в `payment-service` также `PaymentSecurityIntegrationTest` с **реальным Keycloak** (`dasniko/testcontainers-keycloak`, `KeycloakContainer` + импорт realm `market`)
 - **Mockito** — unit-тесты сервисов
 - **`@WebFluxTest` / `WebTestClient`** — тесты контроллеров
 - **`@DataR2dbcTest`** — тесты репозиториев
 - **`@SpringBootTest`** — тесты контроллеров payment-service с полным контекстом (нужен из-за маппингов на сгенерированном интерфейсе `PaymentsApi`)
+- **Конкурентные тесты** — `PaymentServiceIntegrationTest#pay_shouldHandleConcurrentPaymentsWithRowLock` проверяет `SELECT ... FOR UPDATE` при параллельных списаниях
 
 ---
 
@@ -93,17 +95,19 @@ my-market-app/                     (parent pom, packaging=pom)
 - Просмотр списка заказов и детальной страницы заказа
 
 #### Кеширование в Redis (`market-app`)
-- **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id`
-- **Список товаров** (`itemList`): кешируется `ItemListResponse` по ключу `sort:search:pageNumber:pageSize`
+
+- **Карточка товара** (`item`): кешируется `ItemDto` по ключу `id:userId`
+- **Список товаров** (`itemList`): кешируется `ItemListResponse` по ключу `sort:search:pageNumber:pageSize:userId`
+- **Корзина** (`cart`): кешируется `CartDto` (товары + сумма) по ключу `userId` — `CartCacheService`
 - **TTL** — 3 минуты (`CacheConfig.CACHE_TTL`)
-- **Инвалидация** (`@CacheEvict(allEntries = true)`) при:
+- **Инвалидация** (`@CacheEvict(allEntries = true)` для кэшей `item`, `itemList`, `cart`) при:
   - изменении количества товара со страницы товара / списка (`changeItemCountFromItemPage`)
   - изменении количества в корзине (`changeItemCountFromCartPage`)
   - сохранении нового заказа (`OrderPersistenceService.saveNewOrder`)
 - Сериализация — `GenericJackson2JsonRedisSerializer`
 - `null`-значения не кешируются (`disableCachingNullValues`)
-- **Корзина не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности payment-service,
-  поэтому запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) и `PaymentStatusDto` (статус оплаты) разделены — данные корзины при необходимости можно кешировать отдельно от UI-состояния оплаты.
+- **Статус оплаты не кешируется**: `paymentAvailable`/`paymentMessage` зависят от текущего баланса и доступности 
+payment-service и запрашиваются на каждый `GET /cart/items`. `CartDto` (товары + сумма) кешируется отдельно, `PaymentStatusDto` (статус оплаты) — нет.
 
 ### Сервис платежей (`payment-service`)
 - `GET /api/payments/balance` — текущий баланс
@@ -167,8 +171,12 @@ Swagger UI: `http://localhost:8082/swagger-ui.html`
   - для вызова `payment-service` используется OAuth2-клиент `market-app` (confidential, `client_credentials`, secret `market-secret`), у service account есть роль `SERVICE`.
 - **`payment-service`**:
   - настроен как OAuth2 Resource Server (`issuer-uri` Keycloak);
-  - `JwtGrantedAuthoritiesConverter` читает роль из claim `resource_access.market-app.roles`, поэтому в токене от `market-app` приходит authority `SERVICE`;
-  - `@PreAuthorize("hasAuthority('SERVICE')")` на методах `PaymentController`.
+  - кастомный `NestedResourceAccessRolesConverter` (обёрнут в `ReactiveJwtAuthenticationConverterAdapter`) читает роль из 
+  вложенного claim `resource_access.market-app.roles`, поэтому в токене от `market-app` приходит authority `SERVICE`;
+  - на методах `PaymentController` дополнительно стоит `@PreAuthorize("hasAuthority('SERVICE')")` (включён `@EnableReactiveMethodSecurity`);
+  - `@PreAuthorize("hasAuthority('SERVICE')")` на методах `PaymentController`;
+  - В тестовом `payment-service/src/test/resources/keycloak/realm-export.json` дополнительно заведён клиент `no-service-client` 
+  (без роли `SERVICE`) — для проверки ответа `403` в `PaymentSecurityIntegrationTest`.
 
 ---
 
