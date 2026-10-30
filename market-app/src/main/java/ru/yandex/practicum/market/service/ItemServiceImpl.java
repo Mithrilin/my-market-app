@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.client.PaymentClient;
-import ru.yandex.practicum.market.dto.CartDto;
 import ru.yandex.practicum.market.dto.CartPageResponse;
 import ru.yandex.practicum.market.dto.ItemDto;
 import ru.yandex.practicum.market.dto.ItemListResponse;
@@ -21,6 +20,8 @@ import ru.yandex.practicum.market.exception.BadRequestException;
 import ru.yandex.practicum.market.exception.NotFoundException;
 import ru.yandex.practicum.market.mapper.ItemMapper;
 import ru.yandex.practicum.market.model.Item;
+import ru.yandex.practicum.market.model.ItemWithCount;
+import ru.yandex.practicum.market.repository.CartItemRepository;
 import ru.yandex.practicum.market.repository.ItemRepository;
 
 import java.util.ArrayList;
@@ -36,29 +37,32 @@ public class ItemServiceImpl implements ItemService {
     private static final ItemDto PLUG = ItemDto.builder().id(PLUG_ID).title("plug").build();
 
     private final ItemRepository itemRepository;
-
+    private final CartItemRepository cartItemRepository;
     private final ItemMapper itemMapper;
-
     private final PaymentClient paymentClient;
+    private final CartCacheService cartCacheService;
 
     @Override
-    @Cacheable(cacheNames = "item", key = "#id")
-    public Mono<ItemDto> getItemById(Long id) {
-        Mono<ItemDto> itemDtoMono = findItemById(id).map(itemMapper::toItemDto);
+    @Cacheable(cacheNames = "item", key = "#id + ':' + #userId")
+    public Mono<ItemDto> getItemById(Long id, Long userId) {
+        Mono<ItemDto> itemDtoMono = itemRepository.findByIdWithCount(userId, id)
+                .switchIfEmpty(Mono.error(
+                        new NotFoundException(String.format("Item with ID = %d not found", id))))
+                .map(itemMapper::toItemDto);
         log.info("Item with ID = {} returned.", id);
         return itemDtoMono;
     }
 
     @Override
     @Cacheable(cacheNames = "itemList",
-            key = "#req.sort() + ':' + #req.search() + ':' + #req.pageNumber() + ':' + #req.pageSize()")
-    public Mono<ItemListResponse> getItemList(ItemListSearchRequest req) {
+            key = "#req.sort() + ':' + #req.search() + ':' + #req.pageNumber() + ':' + #req.pageSize() + ':' + #userId")
+    public Mono<ItemListResponse> getItemList(ItemListSearchRequest req, Long userId) {
         int limit = req.pageSize();
         int offset = (req.pageNumber() - 1) * req.pageSize();
         String search = req.search();
         boolean hasSearch = search != null && !search.isBlank();
 
-        Flux<Item> itemsFlux = resolveItemsFlux(req.sort(), hasSearch, search, limit, offset);
+        Flux<ItemWithCount> itemsFlux = resolveItemsFlux(req.sort(), hasSearch, search, userId, limit, offset);
         Mono<Long> totalMono = hasSearch
                 ? itemRepository.countSearch(search)
                 : itemRepository.count();
@@ -66,7 +70,7 @@ public class ItemServiceImpl implements ItemService {
         Mono<ItemListResponse> itemListResponseMono = itemsFlux.collectList()
                 .zipWith(totalMono)
                 .map(tuple -> {
-                    List<Item> items = tuple.getT1();
+                    List<ItemWithCount> items = tuple.getT1();
                     long total = tuple.getT2();
                     List<ItemDto> itemDtoList = itemMapper.toItemDtoList(items);
                     List<List<ItemDto>> splittedItemDtoList = splitIntoChunksOfThree(itemDtoList);
@@ -80,46 +84,46 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
-    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
-    public Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action) {
-        if (action == Action.DELETE) {
-            return Mono.error(new BadRequestException("Action cannot be equal DELETE."));
-        }
-        Mono<ItemDto> itemDtoMono = changeItemCount(itemId, action).map(itemMapper::toItemDto);
+    @CacheEvict(cacheNames = {"item", "itemList", "cart"}, allEntries = true)
+    public Mono<ItemDto> changeItemCountFromItemPage(Long itemId, Action action, Long userId) {
+        Mono<ItemDto> itemDtoMono = changeItemCount(itemId, action, userId)
+                .flatMap(item -> itemRepository.findByIdWithCount(userId, itemId))
+                .map(itemMapper::toItemDto);
         log.info("Count of Item with ID {} has been changed from item page.", itemId);
         return itemDtoMono;
     }
 
     @Override
-    public Mono<CartPageResponse> getItemCartList() {
-        Mono<CartPageResponse> cartPageResponseMono = buildCartResponse()
-                .flatMap(cart -> resolvePaymentAvailability(cart.total())
+    public Mono<CartPageResponse> getItemCartList(Long userId) {
+        Mono<CartPageResponse> cartPageResponseMono = cartCacheService.getCart(userId)
+                .flatMap(cart -> resolvePaymentAvailability(cart.total(), userId)
                         .map(payment -> new CartPageResponse(cart, payment)));
-        log.info("Cart page has been returned.");
+        log.info("Cart page has been returned for user {}", userId);
         return cartPageResponseMono;
     }
 
     @Override
-    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
-    public Mono<CartPageResponse> changeItemCountFromCartPage(Long itemId, Action action) {
+    @CacheEvict(cacheNames = {"item", "itemList", "cart"}, allEntries = true)
+    public Mono<CartPageResponse> changeItemCountFromCartPage(Long itemId, Action action, Long userId) {
         Mono<CartPageResponse> cartPageResponseMono =
-                changeItemCount(itemId, action).then(getItemCartList());
-        log.info("Count of Item with ID {} has been changed from cart page.", itemId);
+                changeItemCount(itemId, action, userId).then(getItemCartList(userId));
+        log.info("Count of Item with ID {} has been changed from cart page for user {}.", itemId, userId);
         return cartPageResponseMono;
     }
 
-    private Flux<Item> resolveItemsFlux(Sort sort, boolean hasSearch, String search, int limit, int offset) {
+    private Flux<ItemWithCount> resolveItemsFlux(Sort sort, boolean hasSearch, String search,
+                                                 Long userId, int limit, int offset) {
         if (hasSearch) {
             return switch (sort) {
-                case ALPHA -> itemRepository.searchOrderByTitle(search, limit, offset);
-                case PRICE -> itemRepository.searchOrderByPrice(search, limit, offset);
-                default    -> itemRepository.searchOrderById(search, limit, offset);
+                case ALPHA -> itemRepository.searchOrderByTitle(userId, search, limit, offset);
+                case PRICE -> itemRepository.searchOrderByPrice(userId, search, limit, offset);
+                default    -> itemRepository.searchOrderById(userId, search, limit, offset);
             };
         } else {
             return switch (sort) {
-                case ALPHA -> itemRepository.findAllOrderByTitle(limit, offset);
-                case PRICE -> itemRepository.findAllOrderByPrice(limit, offset);
-                default    -> itemRepository.findAllOrderById(limit, offset);
+                case ALPHA -> itemRepository.findAllOrderByTitle(userId, limit, offset);
+                case PRICE -> itemRepository.findAllOrderByPrice(userId, limit, offset);
+                default    -> itemRepository.findAllOrderById(userId, limit, offset);
             };
         }
     }
@@ -139,21 +143,21 @@ public class ItemServiceImpl implements ItemService {
         return chunkList;
     }
 
-    private Mono<Item> changeItemCount(Long itemId, Action action) {
-        return findItemById(itemId).flatMap(item -> {
-            Integer count = item.getCount();
-            switch (action) {
-                case MINUS -> {
-                    if (count == 0) {
+    private Mono<Item> changeItemCount(Long itemId, Action action, Long userId) {
+        return findItemById(itemId).flatMap(item ->
+                cartItemRepository.findCount(userId, itemId).flatMap(currentCount -> {
+                    if (action == Action.MINUS && currentCount == 0) {
                         return Mono.error(new BadRequestException("Count cannot be less than 0"));
                     }
-                    item.setCount(count - 1);
-                }
-                case PLUS -> item.setCount(count + 1);
-                case DELETE -> item.setCount(0);
-            }
-            return itemRepository.save(item);
-        });
+
+                    if (action == Action.DELETE) {
+                        return cartItemRepository.delete(userId, itemId).thenReturn(item);
+                    }
+
+                    int newCount = action == Action.PLUS ? currentCount + 1 : currentCount - 1;
+                    return cartItemRepository.upsert(userId, itemId, newCount).thenReturn(item);
+                })
+        );
     }
 
     private Mono<Item> findItemById(Long itemId) {
@@ -162,20 +166,8 @@ public class ItemServiceImpl implements ItemService {
                         new NotFoundException(String.format("Item with ID = %d not found", itemId))));
     }
 
-    private Mono<CartDto> buildCartResponse() {
-        return itemRepository.findByCountGreaterThanEqual(MIN_COUNT_ITEMS_IN_CART)
-                .collectList()
-                .map(items -> {
-                    long total = items.stream()
-                            .mapToLong(i -> i.getPrice() * i.getCount())
-                            .sum();
-                    List<ItemDto> dtos = itemMapper.toItemDtoList(items);
-                    return new CartDto(dtos, total);
-                });
-    }
-
-    private Mono<PaymentStatusDto> resolvePaymentAvailability(long total) {
-        return paymentClient.getBalance()
+    private Mono<PaymentStatusDto> resolvePaymentAvailability(long total, Long userId) {
+        return paymentClient.getBalance(userId)
                 .map(balance -> {
                     if (balance.getBalance() == null || balance.getBalance() < total) {
                         return new PaymentStatusDto(false,

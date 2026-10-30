@@ -5,18 +5,28 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
+import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import ru.yandex.practicum.market.config.SecurityConfig;
 import ru.yandex.practicum.market.dto.OrderDto;
+import ru.yandex.practicum.market.exception.BadRequestException;
+import ru.yandex.practicum.market.exception.ErrorHandler;
+import ru.yandex.practicum.market.model.CustomUserDetails;
 import ru.yandex.practicum.market.service.OrderService;
+import ru.yandex.practicum.market.util.TestDataFactory;
 
 import java.util.Collections;
 
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 @WebFluxTest(OrderController.class)
+@Import({SecurityConfig.class, ErrorHandler.class})
 class OrderControllerTest {
 
     @Autowired
@@ -25,7 +35,11 @@ class OrderControllerTest {
     @MockitoBean
     private OrderService orderService;
 
+    @MockitoBean
+    private ReactiveUserDetailsService reactiveUserDetailsService;
+
     private OrderDto testOrderDto;
+    private CustomUserDetails testUser;
 
     @BeforeEach
     void setUp() {
@@ -34,14 +48,16 @@ class OrderControllerTest {
                 .items(Collections.emptyList())
                 .totalSum(1000L)
                 .build();
+        testUser = new CustomUserDetails(TestDataFactory.createTestUser(1L, "user", "password", "ROLE_USER"));
     }
 
     @Test
     @DisplayName("Successful getting Order List")
     void getOrderList_shouldReturnOrderList() {
-        when(orderService.getOrderList()).thenReturn(Flux.just(testOrderDto));
+        when(orderService.getOrderList(anyLong())).thenReturn(Flux.just(testOrderDto));
 
-        webTestClient.get().uri("/orders")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .get().uri("/orders")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -49,9 +65,10 @@ class OrderControllerTest {
     @Test
     @DisplayName("Successful getting Order by ID")
     void getOrderById_shouldReturnOrderPageById() {
-        when(orderService.getOrderById(1L)).thenReturn(Mono.just(testOrderDto));
+        when(orderService.getOrderById(anyLong(), anyLong())).thenReturn(Mono.just(testOrderDto));
 
-        webTestClient.get().uri("/orders/1")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .get().uri("/orders/1")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -59,9 +76,10 @@ class OrderControllerTest {
     @Test
     @DisplayName("Successful return of the new order page with flag newOrder=true")
     void getOrderById_shouldReturnNewOrderPage() {
-        when(orderService.getOrderById(1L)).thenReturn(Mono.just(testOrderDto));
+        when(orderService.getOrderById(anyLong(), anyLong())).thenReturn(Mono.just(testOrderDto));
 
-        webTestClient.get().uri("/orders/1?newOrder=true")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .get().uri("/orders/1?newOrder=true")
                 .exchange()
                 .expectStatus().isOk();
     }
@@ -69,18 +87,34 @@ class OrderControllerTest {
     @Test
     @DisplayName("Successful Order creation")
     void createOrder_shouldCreateOrder() {
-        when(orderService.createOrder()).thenReturn(Mono.just(testOrderDto));
+        when(orderService.createOrder(anyLong())).thenReturn(Mono.just(testOrderDto));
 
-        webTestClient.post().uri("/buy")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/buy")
                 .exchange()
                 .expectStatus().isSeeOther()
                 .expectHeader().valueEquals("Location", "/orders/1?newOrder=true");
     }
 
     @Test
+    @DisplayName("POST /buy returns 400 when cart is empty")
+    void createOrder_shouldReturnBadRequestWhenCartIsEmpty() {
+        when(orderService.createOrder(anyLong()))
+                .thenReturn(Mono.error(new BadRequestException("Корзина пуста, невозможно оформить заказ")));
+
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .mutateWith(SecurityMockServerConfigurers.csrf())
+                .post().uri("/buy")
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     @DisplayName("Order creation when negative order Id")
     void shouldReturnErrorForNegativeOrderId() {
-        webTestClient.get().uri("/orders/-1")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .get().uri("/orders/-1")
                 .exchange()
                 .expectStatus().isBadRequest();
     }
@@ -88,8 +122,18 @@ class OrderControllerTest {
     @Test
     @DisplayName("Order creation when order Id is 0")
     void shouldReturnErrorForZeroOrderId() {
-        webTestClient.get().uri("/orders/0")
+        webTestClient.mutateWith(SecurityMockServerConfigurers.mockUser(testUser))
+                .get().uri("/orders/0")
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    @DisplayName("Anonymous user redirected to login for /orders")
+    void anonymousUser_shouldBeRedirectedToLogin() {
+        webTestClient.get().uri("/orders")
+                .exchange()
+                .expectStatus().is3xxRedirection()
+                .expectHeader().valueMatches("Location", ".*/login.*");
     }
 }

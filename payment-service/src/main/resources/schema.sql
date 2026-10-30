@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS accounts (
+    user_id BIGINT NOT NULL PRIMARY KEY,
+    balance BIGINT NOT NULL
+);

@@ -26,7 +26,7 @@ public class PaymentClientImpl implements PaymentClient {
 
     private final PaymentsApi paymentsApi;
 
-    public PaymentClientImpl(WebClient.Builder builder, PaymentClientProperties properties) {
+    public PaymentClientImpl(WebClient paymentWebClient, PaymentClientProperties properties) {
         if (properties.baseUrl() == null || properties.baseUrl().isBlank()) {
             throw new IllegalStateException(
                     "payment.service.base-url is not configured. Set PAYMENT_SERVICE_URL env variable.");
@@ -35,7 +35,7 @@ public class PaymentClientImpl implements PaymentClient {
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) properties.timeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.timeoutMs()));
 
-        WebClient webClient = builder
+        WebClient webClient = paymentWebClient.mutate()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
 
@@ -43,8 +43,8 @@ public class PaymentClientImpl implements PaymentClient {
     }
 
     @Override
-    public Mono<BalanceResponse> getBalance() {
-        return paymentsApi.getBalance()
+    public Mono<BalanceResponse> getBalance(Long userId) {
+        return paymentsApi.getBalance(userId)
                 .onErrorMap(this::mapPaymentError);
     }
 
@@ -58,6 +58,10 @@ public class PaymentClientImpl implements PaymentClient {
         if (e instanceof WebClientResponseException wcre) {
             int status = wcre.getStatusCode().value();
             String body = wcre.getResponseBodyAsString();
+            if (status == 401 || status == 403) {
+                return new PaymentServiceException(
+                        "Payment service denied access: " + status + (body.isBlank() ? "" : " — " + body));
+            }
             if (status >= 400 && status < 500) {
                 return new BadRequestException(
                         "Payment service rejected request: " + status + (body.isBlank() ? "" : " — " + body));

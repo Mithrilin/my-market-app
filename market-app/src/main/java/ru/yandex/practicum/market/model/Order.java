@@ -26,6 +26,9 @@ public class Order {
     @Id
     private Long id;
 
+    @Column("user_id")
+    private Long userId;
+
     @Transient
     private List<OrderItem> orderItemList = new ArrayList<>();
 

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 
 <head>
     <meta charset="utf-8">
@@ -9,6 +10,7 @@
 </head>
 
 <body class="bg-light">
+<form id="logout-form" th:action="@{/logout}" method="post" style="display:none;"></form>
 <div class="alert alert-success alert-dismissible fade show" role="alert" th:if="${newOrder}">
     Поздравляем! Успешная покупка! &#128578;
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
@@ -23,6 +25,7 @@
                 </h2>
                 <a href="/orders" class="btn btn-secondary ms-auto bi bi-file-earmark-text"> Заказы</a>
                 <a href="/cart/items" class="btn btn-secondary bi bi-cart4"> Корзина</a>
+                <button type="submit" form="logout-form" class="btn btn-secondary bi bi-box-arrow-right"> Выйти</button>
                 <a href="/items" class="btn btn-secondary bi bi-arrow-left-square"> Главная</a>
             </div>
         </div>

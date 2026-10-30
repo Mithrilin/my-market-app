@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Payment Service API
-  description: RESTful-сервис платежей для My Market App
-  version: 1.0.0
+  description: RESTful-сервис платежей для My Market App (OAuth2 Resource Server)
+  version: 2.0.0
 
 paths:
   /api/payments/balance:
@@ -10,14 +10,46 @@ paths:
       tags:
         - payments
       operationId: getBalance
-      summary: Получить текущий баланс
+      summary: Получить текущий баланс пользователя
+      description: |
+        Требует валидный JWT (OAuth2 Resource Server) с ролью `SERVICE`
+        в claim `resource_access.market-app.roles`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          description: Идентификатор пользователя, чей баланс запрашивается
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
       responses:
         '200':
-          description: Текущий баланс
+          description: Текущий баланс пользователя
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BalanceResponse'
+        '400':
+          description: Счёт не найден или невалидный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
+        '401':
+          description: Не авторизован (отсутствует или невалидный JWT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
+        '403':
+          description: Доступ запрещён (у токена нет роли SERVICE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
         '5XX':
           description: Ошибка сервиса платежей
           content:
@@ -30,7 +62,12 @@ paths:
       tags:
         - payments
       operationId: pay
-      summary: Списать сумму со счёта
+      summary: Списать сумму со счёта пользователя
+      description: |
+        Требует валидный JWT (OAuth2 Resource Server) с ролью `SERVICE`
+        в claim `resource_access.market-app.roles`.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -50,6 +87,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentErrorResponse'
+        '401':
+          description: Не авторизован (отсутствует или невалидный JWT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
+        '403':
+          description: Доступ запрещён (у токена нет роли SERVICE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentErrorResponse'
         '5XX':
           description: Ошибка сервиса платежей
           content:
@@ -58,12 +107,24 @@ paths:
                 $ref: '#/components/schemas/PaymentErrorResponse'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     PaymentRequest:
       type: object
       required:
+        - userId
         - amount
       properties:
+        userId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Идентификатор пользователя, с чьего счёта списывается сумма
         amount:
           type: integer
           format: int64
@@ -73,6 +134,9 @@ components:
     PaymentResponse:
       type: object
       properties:
+        userId:
+          type: integer
+          format: int64
         amount:
           type: integer
           format: int64

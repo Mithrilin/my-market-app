@@ -2,14 +2,14 @@ package ru.yandex.practicum.market.mapper;
 
 import org.mapstruct.Mapper;
 import ru.yandex.practicum.market.dto.ItemDto;
-import ru.yandex.practicum.market.model.Item;
+import ru.yandex.practicum.market.model.ItemWithCount;
 
 import java.util.List;
 
 @Mapper(componentModel = "spring")
 public interface ItemMapper {
 
-    ItemDto toItemDto(Item item);
+    ItemDto toItemDto(ItemWithCount item);
 
-    List<ItemDto> toItemDtoList(List<Item> itemList);
+    List<ItemDto> toItemDtoList(List<ItemWithCount> itemList);
 }

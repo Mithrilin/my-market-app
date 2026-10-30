@@ -1,4 +1,18 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1.2
+    container_name: keycloak-container
+    command: start-dev --import-realm
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_HOSTNAME=http://keycloak:8080
+      - KC_HOSTNAME_STRICT=false
+
   market-app:
     build:
       context: ./market-app
@@ -6,19 +20,26 @@ services:
     image: my-market-app-image
     container_name: my-market-app-container
     ports:
-      - "8080:8080"
+      - "8081:8081"
     depends_on:
       - market-bd
       - redis
       - payment-service
+      - keycloak
     environment:
+      - SERVER_PORT=8081
       - SPRING_R2DBC_URL=r2dbc:postgresql://market-bd:5432/market-bd
       - SPRING_R2DBC_USERNAME=postgres
       - SPRING_R2DBC_PASSWORD=postgres
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
-      - PAYMENT_SERVICE_URL=http://payment-service:8081
+      - PAYMENT_SERVICE_URL=http://payment-service:8082
       - PAYMENT_SERVICE_TIMEOUT_MS=2000
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_MARKET_APP_CLIENT_ID=market-app
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_MARKET_APP_CLIENT_SECRET=market-secret
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_MARKET_APP_AUTHORIZATION_GRANT_TYPE=client_credentials
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_MARKET_APP_PROVIDER=market-keycloak
+      - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_MARKET_KEYCLOAK_TOKEN_URI=http://keycloak:8080/realms/market/protocol/openid-connect/token
 
   payment-service:
     build:
@@ -27,9 +48,16 @@ services:
     image: payment-service-image
     container_name: payment-service-container
     ports:
-      - "8081:8081"
+      - "8082:8082"
+    depends_on:
+      - keycloak
+      - payment-bd
     environment:
-      - PAYMENT_INITIAL_BALANCE=200000
+      - SERVER_PORT=8082
+      - SPRING_R2DBC_URL=r2dbc:postgresql://payment-bd:5432/payment-bd
+      - SPRING_R2DBC_USERNAME=postgres
+      - SPRING_R2DBC_PASSWORD=postgres
+      - KEYCLOAK_ISSUER_URI=http://keycloak:8080/realms/market
 
   redis:
     image: redis:7-alpine
@@ -46,3 +74,13 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_DB=market-bd
+
+  payment-bd:
+    image: postgres:18-alpine
+    container_name: payment-bd-container
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=payment-bd

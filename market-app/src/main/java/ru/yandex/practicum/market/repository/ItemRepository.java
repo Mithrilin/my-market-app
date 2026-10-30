@@ -5,44 +5,69 @@ import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import ru.yandex.practicum.market.model.Item;
+import ru.yandex.practicum.market.model.ItemWithCount;
 
 public interface ItemRepository extends ReactiveCrudRepository<Item, Long> {
 
-    @Query("SELECT * FROM items ORDER BY id ASC LIMIT :limit OFFSET :offset")
-    Flux<Item> findAllOrderById(int limit, int offset);
-
-    @Query("SELECT * FROM items ORDER BY title ASC LIMIT :limit OFFSET :offset")
-    Flux<Item> findAllOrderByTitle(int limit, int offset);
-
-    @Query("SELECT * FROM items ORDER BY price ASC LIMIT :limit OFFSET :offset")
-    Flux<Item> findAllOrderByPrice(int limit, int offset);
-
     @Query("""
-            SELECT * FROM items
-            WHERE LOWER(title) LIKE LOWER(CONCAT('%', :search, '%'))
-               OR LOWER(description) LIKE LOWER(CONCAT('%', :search, '%'))
-            ORDER BY id ASC
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            ORDER BY i.id ASC
             LIMIT :limit OFFSET :offset
             """)
-    Flux<Item> searchOrderById(String search, int limit, int offset);
+    Flux<ItemWithCount> findAllOrderById(Long userId, int limit, int offset);
 
     @Query("""
-            SELECT * FROM items
-            WHERE LOWER(title) LIKE LOWER(CONCAT('%', :search, '%'))
-               OR LOWER(description) LIKE LOWER(CONCAT('%', :search, '%'))
-            ORDER BY title ASC
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            ORDER BY i.title ASC
             LIMIT :limit OFFSET :offset
             """)
-    Flux<Item> searchOrderByTitle(String search, int limit, int offset);
+    Flux<ItemWithCount> findAllOrderByTitle(Long userId, int limit, int offset);
 
     @Query("""
-            SELECT * FROM items
-            WHERE LOWER(title) LIKE LOWER(CONCAT('%', :search, '%'))
-               OR LOWER(description) LIKE LOWER(CONCAT('%', :search, '%'))
-            ORDER BY price ASC
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            ORDER BY i.price ASC
             LIMIT :limit OFFSET :offset
             """)
-    Flux<Item> searchOrderByPrice(String search, int limit, int offset);
+    Flux<ItemWithCount> findAllOrderByPrice(Long userId, int limit, int offset);
+
+    @Query("""
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            WHERE LOWER(i.title) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(i.description) LIKE LOWER(CONCAT('%', :search, '%'))
+            ORDER BY i.id ASC
+            LIMIT :limit OFFSET :offset
+            """)
+    Flux<ItemWithCount> searchOrderById(Long userId, String search, int limit, int offset);
+
+    @Query("""
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            WHERE LOWER(i.title) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(i.description) LIKE LOWER(CONCAT('%', :search, '%'))
+            ORDER BY i.title ASC
+            LIMIT :limit OFFSET :offset
+            """)
+    Flux<ItemWithCount> searchOrderByTitle(Long userId, String search, int limit, int offset);
+
+    @Query("""
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            WHERE LOWER(i.title) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(i.description) LIKE LOWER(CONCAT('%', :search, '%'))
+            ORDER BY i.price ASC
+            LIMIT :limit OFFSET :offset
+            """)
+    Flux<ItemWithCount> searchOrderByPrice(Long userId, String search, int limit, int offset);
 
     @Query("""
             SELECT COUNT(*) FROM items
@@ -51,5 +76,19 @@ public interface ItemRepository extends ReactiveCrudRepository<Item, Long> {
             """)
     Mono<Long> countSearch(String search);
 
-    Flux<Item> findByCountGreaterThanEqual(Integer minCount);
+    @Query("""
+            SELECT i.id, i.title, i.description, i.img_path, i.price, COALESCE(ci.count, 0) AS count
+            FROM items i
+            LEFT JOIN cart_items ci ON ci.item_id = i.id AND ci.user_id = :userId
+            WHERE i.id = :id
+            """)
+    Mono<ItemWithCount> findByIdWithCount(Long userId, Long id);
+
+    @Query("""
+            SELECT i.id, i.title, i.description, i.img_path, i.price, ci.count AS count
+            FROM items i
+            INNER JOIN cart_items ci ON ci.item_id = i.id
+            WHERE ci.user_id = :userId AND ci.count >= :minCount
+            """)
+    Flux<ItemWithCount> findCartItemsByUserId(Long userId, Integer minCount);
 }

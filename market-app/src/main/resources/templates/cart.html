@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 
 <head>
     <meta charset="utf-8">
@@ -9,6 +10,7 @@
 </head>
 
 <body class="bg-light">
+<form id="logout-form" th:action="@{/logout}" method="post" style="display:none;"></form>
 <div class="container p-2">
     <div class="row p-2">
         <div class="col">
@@ -17,6 +19,7 @@
                     <span class="badge text-bg-success">Витрина магазина</span>
                 </h2>
                 <a href="/orders" class="btn btn-secondary ms-auto bi bi-file-earmark-text"> Заказы</a>
+                <button type="submit" form="logout-form" class="btn btn-secondary bi bi-box-arrow-right"> Выйти</button>
                 <a href="/items" class="btn btn-secondary bi bi-arrow-left-square"> Главная</a>
             </div>
         </div>
@@ -48,7 +51,7 @@
         <div class="col">
             <div th:if="${paymentMessage != null}" class="alert alert-warning" role="alert"
                  th:text="${paymentMessage}"></div>
-            <form action="/buy" method="post" th:if="${!items.isEmpty()}">
+            <form th:action="@{/buy}" method="post" th:if="${!items.isEmpty()}">
                 <div class="hstack gap-3">
                     <h2 th:text="'Итого: '+${total}+' руб.'"/>
                     <button class="btn btn-warning ms-auto" th:disabled="${!paymentAvailable}">Купить</button>

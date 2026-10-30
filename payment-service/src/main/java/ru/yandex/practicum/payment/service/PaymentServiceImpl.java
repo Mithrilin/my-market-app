@@ -1,55 +1,56 @@
 package ru.yandex.practicum.payment.service;
 
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.payment.config.PaymentProperties;
 import ru.yandex.practicum.payment.dto.generated.BalanceResponse;
 import ru.yandex.practicum.payment.dto.generated.PaymentRequest;
 import ru.yandex.practicum.payment.dto.generated.PaymentResponse;
 import ru.yandex.practicum.payment.dto.generated.PaymentStatus;
 import ru.yandex.practicum.payment.exception.InsufficientFundsException;
-
-import java.util.concurrent.atomic.AtomicLong;
+import ru.yandex.practicum.payment.repository.AccountRepository;
 
 @Slf4j
 @Service
+@AllArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
 
-    private final AtomicLong balance;
+    private final AccountRepository accountRepository;
 
-    public PaymentServiceImpl(PaymentProperties properties) {
-        Long initial = properties.initialBalance() == null ? 0L : properties.initialBalance();
-        this.balance = new AtomicLong(initial);
-        log.info("Payment service initialized with initial balance = {}", initial);
+    @Override
+    public Mono<BalanceResponse> getBalance(Long userId) {
+        return accountRepository.findById(userId)
+                .switchIfEmpty(Mono.error(new InsufficientFundsException(
+                        String.format("Account for user %d not found", userId))))
+                .map(account -> new BalanceResponse().balance(account.getBalance()));
     }
 
     @Override
-    public Mono<BalanceResponse> getBalance() {
-        return Mono.fromSupplier(() -> new BalanceResponse().balance(balance.get()));
-    }
-
-    @Override
+    @Transactional
     public Mono<PaymentResponse> pay(PaymentRequest request) {
-        return Mono.fromCallable(() -> deduct(request));
-    }
-
-    private PaymentResponse deduct(PaymentRequest request) {
-        long amount = request.getAmount();
-        while (true) {
-            long current = balance.get();
-            if (current < amount) {
-                throw new InsufficientFundsException(
-                        String.format("Insufficient funds: balance = %d, required = %d", current, amount));
-            }
-            long newBalance = current - amount;
-            if (balance.compareAndSet(current, newBalance)) {
-                log.info("Payment succeeded: {} deducted, new balance = {}", amount, newBalance);
-                return new PaymentResponse()
-                        .amount(amount)
-                        .newBalance(newBalance)
-                        .status(PaymentStatus.SUCCESS);
-            }
-        }
+        return accountRepository.findByUserIdForUpdate(request.getUserId())
+                .switchIfEmpty(Mono.error(new InsufficientFundsException(
+                        String.format("Account for user %d not found", request.getUserId()))))
+                .flatMap(account -> {
+                    long amount = request.getAmount();
+                    if (account.getBalance() < amount) {
+                        return Mono.error(new InsufficientFundsException(
+                                String.format("Insufficient funds: balance = %d, required = %d",
+                                        account.getBalance(), amount)));
+                    }
+                    account.setBalance(account.getBalance() - amount);
+                    return accountRepository.save(account);
+                })
+                .map(saved -> {
+                    log.info("Payment succeeded: user {}, amount {}, new balance {}",
+                            saved.getUserId(), request.getAmount(), saved.getBalance());
+                    return new PaymentResponse()
+                            .userId(saved.getUserId())
+                            .amount(request.getAmount())
+                            .newBalance(saved.getBalance())
+                            .status(PaymentStatus.SUCCESS);
+                });
     }
 }

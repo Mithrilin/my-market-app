@@ -7,7 +7,7 @@ import ru.yandex.practicum.market.client.generated.dto.PaymentResponse;
 
 public interface PaymentClient {
 
-    Mono<BalanceResponse> getBalance();
+    Mono<BalanceResponse> getBalance(Long userId);
 
     Mono<PaymentResponse> pay(PaymentRequest request);
 }

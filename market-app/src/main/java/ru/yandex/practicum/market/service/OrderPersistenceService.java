@@ -6,10 +6,10 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
-import ru.yandex.practicum.market.model.Item;
+import ru.yandex.practicum.market.model.ItemWithCount;
 import ru.yandex.practicum.market.model.Order;
 import ru.yandex.practicum.market.model.OrderItem;
-import ru.yandex.practicum.market.repository.ItemRepository;
+import ru.yandex.practicum.market.repository.CartItemRepository;
 import ru.yandex.practicum.market.repository.OrderItemRepository;
 import ru.yandex.practicum.market.repository.OrderRepository;
 
@@ -22,18 +22,19 @@ public class OrderPersistenceService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
-    private final ItemRepository itemRepository;
+    private final CartItemRepository cartItemRepository;
 
     @Transactional
-    @CacheEvict(cacheNames = {"item", "itemList"}, allEntries = true)
-    public Mono<Order> saveNewOrder(List<Item> items, long totalSum) {
-        Order order = Order.builder().totalSum(totalSum).build();
+    @CacheEvict(cacheNames = {"item", "itemList", "cart"}, allEntries = true)
+    public Mono<Order> saveNewOrder(List<ItemWithCount> items, long totalSum, Long userId) {
+        Order order = Order.builder().userId(userId).totalSum(totalSum).build();
 
         return orderRepository.save(order)
                 .flatMap(savedOrder -> {
                     if (items.isEmpty()) {
                         savedOrder.setOrderItemList(List.of());
-                        return Mono.just(savedOrder);
+                        return cartItemRepository.deleteAllByUserId(userId)
+                                .then(Mono.just(savedOrder));
                     }
 
                     List<OrderItem> orderItems = items.stream()
@@ -49,8 +50,8 @@ public class OrderPersistenceService {
                             .collectList()
                             .flatMap(savedItems -> {
                                 savedOrder.setOrderItemList(savedItems);
-                                items.forEach(i -> i.setCount(0));
-                                return itemRepository.saveAll(items).then(Mono.just(savedOrder));
+                                return cartItemRepository.deleteAllByUserId(userId)
+                                        .then(Mono.just(savedOrder));
                             });
                 });
     }
